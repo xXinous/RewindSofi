@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { app } from './firebase';
 
 // --- ÍCONES SVG COMO COMPONENTES ---
 const PlayIcon = ({ className }) => (
