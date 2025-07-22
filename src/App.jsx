@@ -12,7 +12,10 @@ import {
   orderBy,
   limit
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, uploadBytesResumable, deleteObject } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, uploadBytesResumable, deleteObject, listAll } from 'firebase/storage';
+import PhotoGallery from './PhotoGallery';
+import VideoSelector from './VideoSelector';
+import UploadStatus from './UploadStatus';
 
 // --- ÍCONES SVG COMO COMPONENTES ---
 const PlayIcon = ({ className }) => (
@@ -65,7 +68,8 @@ function HomePage({ onNavigate }) {
   );
 }
 
-function MemoryForm({ onCreateMemory, onNavigate, initialData }) {
+function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) {
+  // Estados principais do formulário
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [musicUrl, setMusicUrl] = useState('');
@@ -73,30 +77,19 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData }) {
   const [musicArtist, setMusicArtist] = useState('');
   const [coupleNames, setCoupleNames] = useState('');
   const [startDate, setStartDate] = useState('');
-  const [photos, setPhotos] = useState([]);
-  const [error, setError] = useState('');
-  const [isEnhancing, setIsEnhancing] = useState(false);
-
-  // Estados para a seção "Secret Love"
   const [secretLoveEnabled, setSecretLoveEnabled] = useState(false);
   const [secretPassword, setSecretPassword] = useState('');
-  const [secretVideo, setSecretVideo] = useState(null);
   const [secretMessage, setSecretMessage] = useState('');
-
-  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
   const [uploadError, setUploadError] = useState('');
-  const [allUploadsDone, setAllUploadsDone] = useState(false);
 
-  const MAX_PHOTOS = 10;
-  const MAX_PHOTO_SIZE_MB = 5;
-  const MAX_VIDEO_SIZE_MB = 50;
+  // Fotos: array de {file, url, name, uploaded, progress}
+  const [photos, setPhotos] = useState([]);
+  // Vídeo: {file, url, name, uploaded, progress}
+  const [video, setVideo] = useState(null);
+  const [availableStoragePhotos, setAvailableStoragePhotos] = useState([]); // [{url, name, selected}]
 
-  // Novo estado para fotos: array de objetos { url, name, size, progress, uploading, ref }
-  const [photoObjs, setPhotoObjs] = useState([]);
-  // Novo estado para vídeo secreto: objeto { url, name, size, progress, uploading, ref }
-  const [secretVideoObj, setSecretVideoObj] = useState(null);
-
-  // Se initialData existir, preenche os campos
+  // Preencher formulário ao editar
   useEffect(() => {
     if (initialData) {
       setTitle(initialData.title || '');
@@ -111,217 +104,182 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData }) {
       setSecretMessage(initialData.secretMessage || '');
       // Fotos já existentes
       if (initialData.photos && Array.isArray(initialData.photos)) {
-        setPhotoObjs(initialData.photos.map(url => ({ url, name: url.split('/').pop(), size: 0, progress: 100, uploading: false, ref: null })));
+        setPhotos(initialData.photos.map(url => ({ file: null, url, name: url.split('/').pop(), uploaded: true, progress: 100 })));
       }
-      // Vídeo secreto já existente
+      // Vídeo já existente
       if (initialData.secretVideo) {
-        setSecretVideoObj({ url: initialData.secretVideo, name: initialData.secretVideo.split('/').pop(), size: 0, progress: 100, uploading: false, ref: null });
+        setVideo({ file: null, url: initialData.secretVideo, name: initialData.secretVideo.split('/').pop(), uploaded: true, progress: 100 });
       }
     }
   }, [initialData]);
 
-  // Upload de uma foto individual com timeout
-  const uploadPhoto = (file, idx) => {
-    return new Promise((resolve, reject) => {
-      const storageRef = ref(storage, `memories/photos/${Date.now()}_${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-      let newPhoto = {
-        url: '',
-        name: file.name,
-        size: file.size,
-        progress: 0,
-        uploading: true,
-        ref: storageRef
-      };
-      setPhotoObjs(prev => {
-        const arr = [...prev];
-        arr[idx] = newPhoto;
-        return arr;
-      });
-      // Timeout de 60s
-      const timeout = setTimeout(() => {
-        uploadTask.cancel();
-        setPhotoObjs(prev => {
-          const arr = [...prev];
-          arr[idx] = { ...arr[idx], uploading: false };
-          return arr;
-        });
-        setUploadError('O upload está demorando mais do que o esperado. Verifique sua conexão ou tente novamente.');
-        reject(new Error('Timeout de upload'));
-      }, 60000);
-      uploadTask.on('state_changed',
-        (snapshot) => {
-          const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-          setPhotoObjs(prev => {
-            const arr = [...prev];
-            arr[idx] = { ...arr[idx], progress };
-            return arr;
-          });
-        },
-        (error) => {
-          clearTimeout(timeout);
-          setPhotoObjs(prev => {
-            const arr = [...prev];
-            arr[idx] = { ...arr[idx], uploading: false };
-            return arr;
-          });
-          if (error.code === 'storage/canceled') {
-            setUploadError('O upload foi cancelado por demora excessiva.');
-          }
-          reject(error);
-        },
-        async () => {
-          clearTimeout(timeout);
-          const url = await getDownloadURL(storageRef);
-          setPhotoObjs(prev => {
-            const arr = [...prev];
-            arr[idx] = { ...arr[idx], url, uploading: false };
-            return arr;
-          });
-          resolve(url);
-        }
-      );
-    });
-  };
-
-  // Upload de fotos múltiplas em paralelo
-  const handlePhotoUpload = async (files) => {
-    setUploadError('');
-    if (files.length + photoObjs.length > MAX_PHOTOS) {
-      setUploadError(`Você pode enviar no máximo ${MAX_PHOTOS} fotos.`);
-      return;
-    }
-    for (const file of files) {
-      if (file.size > MAX_PHOTO_SIZE_MB * 1024 * 1024) {
-        setUploadError(`Cada foto deve ter no máximo ${MAX_PHOTO_SIZE_MB}MB.`);
-        return;
+  // Buscar imagens já presentes no Storage ao abrir o formulário de nova memória
+  useEffect(() => {
+    async function fetchStoragePhotos() {
+      if (initialData) return; // Só para nova memória
+      try {
+        const photosRef = ref(storage, 'memories/photos/');
+        const res = await listAll(photosRef);
+        const urls = await Promise.all(res.items.map(async (itemRef) => {
+          const url = await getDownloadURL(itemRef);
+          return { url, name: itemRef.name, selected: false };
+        }));
+        setAvailableStoragePhotos(urls);
+      } catch (e) {
+        // Se não houver fotos, não faz nada
       }
     }
-    // Adiciona placeholders
-    const startIdx = photoObjs.length;
-    setPhotoObjs(prev => [...prev, ...files.map(f => ({ name: f.name, size: f.size, progress: 0, uploading: true, url: '', ref: null }))]);
-    // Upload em paralelo
-    await Promise.all(files.map((file, i) => uploadPhoto(file, startIdx + i)));
+    fetchStoragePhotos();
+  }, [initialData]);
+
+  // Selecionar/deselecionar imagem do Storage
+  const toggleSelectStoragePhoto = (idx) => {
+    setAvailableStoragePhotos(prev => prev.map((p, i) => i === idx ? { ...p, selected: !p.selected } : p));
   };
 
-  // Drag & drop para fotos
-  const handleDrop = (e) => {
-    e.preventDefault();
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-    if (files.length > 0) handlePhotoUpload(files);
+  // Adicionar fotos
+  const handlePhotoSelection = (files) => {
+    // Remover validação de tamanho
+    const newPhotos = Array.from(files).map(file => ({ file, url: URL.createObjectURL(file), name: file.name, uploaded: false, progress: 0 }));
+    setPhotos(prev => [...prev, ...newPhotos].slice(0, 10));
   };
-  const handleDragOver = (e) => {
-    e.preventDefault();
+  // Remover foto
+  const handleRemovePhoto = (idx) => {
+    setPhotos(prev => prev.filter((_, i) => i !== idx));
   };
-
-  // Verifica se todos os uploads estão prontos
-  useEffect(() => {
-    const allPhotosDone = photoObjs.every(p => !p.uploading);
-    const videoDone = !secretLoveEnabled || !secretVideoObj || !secretVideoObj.uploading;
-    setAllUploadsDone(allPhotosDone && videoDone);
-  }, [photoObjs, secretLoveEnabled, secretVideoObj]);
-
-  // Remover foto (apaga do Storage se já enviada)
-  const handleRemovePhoto = async (idx) => {
-    const obj = photoObjs[idx];
-    if (obj && obj.url && obj.ref) {
-      try { await deleteObject(obj.ref); } catch {}
-    }
-    setPhotoObjs(prev => prev.filter((_, i) => i !== idx));
-  };
-
   // Substituir foto
   const handleReplacePhoto = (file, idx) => {
-    handleRemovePhoto(idx).then(() => handlePhotoUpload([file]));
+    setPhotos(prev => prev.map((p, i) => i === idx ? { file, url: URL.createObjectURL(file), name: file.name, uploaded: false, progress: 0 } : p));
   };
 
-  // Upload de vídeo secreto com timeout
-  const uploadSecretVideo = (file) => {
-    return new Promise((resolve, reject) => {
-      if (file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024) {
-        setUploadError(`O vídeo deve ter no máximo ${MAX_VIDEO_SIZE_MB}MB.`);
-        reject();
-        return;
-      }
-      const storageRef = ref(storage, `memories/secret_videos/${Date.now()}_${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-      let newVid = {
-        url: '',
-        name: file.name,
-        size: file.size,
-        progress: 0,
-        uploading: true,
-        ref: storageRef
-      };
-      setSecretVideoObj(newVid);
-      // Timeout de 60s
-      const timeout = setTimeout(() => {
-        uploadTask.cancel();
-        setSecretVideoObj(v => ({ ...v, uploading: false }));
-        setUploadError('O upload do vídeo está demorando mais do que o esperado. Verifique sua conexão ou tente novamente.');
-        reject(new Error('Timeout de upload'));
-      }, 60000);
+  // Adicionar vídeo
+  const handleVideoSelection = (file) => {
+    // Remover validação de tamanho
+    setVideo({ file, url: URL.createObjectURL(file), name: file.name, uploaded: false, progress: 0 });
+  };
+  // Remover vídeo
+  const handleRemoveVideo = () => {
+    setVideo(null);
+  };
+  // Substituir vídeo
+  const handleReplaceVideo = (file) => {
+    setVideo({ file, url: URL.createObjectURL(file), name: file.name, uploaded: false, progress: 0 });
+  };
+
+  // Função utilitária para sanitizar nome de arquivo
+  function sanitizeFileName(name) {
+    return name
+      .normalize('NFD').replace(/[ -]/g, '') // remove acentos
+      .replace(/[^a-zA-Z0-9.\-_]/g, '_') // só letras, números, ponto, traço, underline
+      .replace(/_+/g, '_');
+  }
+  function getTimestampName(prefix, originalName) {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    const sanitized = sanitizeFileName(originalName);
+    return `${prefix}_${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}_${sanitized}`;
+  }
+
+  // Upload em lote de fotos
+  const handleUploadPhotos = async () => {
+    setUploadError('');
+    const newPhotos = await Promise.all(photos.map(async (p, i) => {
+      if (p.uploaded) return p;
+      const fileName = getTimestampName('foto', p.name);
+      const storageRef = ref(storage, `memories/photos/${fileName}`);
+      const uploadTask = uploadBytesResumable(storageRef, p.file);
+      return await new Promise((resolve, reject) => {
+        uploadTask.on('state_changed',
+          (snapshot) => {
+            setPhotos(prev => prev.map((ph, idx) => idx === i ? { ...ph, progress: Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) } : ph));
+          },
+          (error) => { setUploadError('Erro ao enviar fotos.'); reject(error); },
+          async () => {
+            const url = await getDownloadURL(storageRef);
+            resolve({ ...p, url, uploaded: true, progress: 100, name: fileName });
+          }
+        );
+      });
+    }));
+    setPhotos(newPhotos);
+  };
+
+  // Upload do vídeo
+  const handleUploadVideo = async () => {
+    if (!video || video.uploaded) return;
+    setUploadError('');
+    const fileName = getTimestampName('video', video.name);
+    const storageRef = ref(storage, `memories/secret_videos/${fileName}`);
+    const uploadTask = uploadBytesResumable(storageRef, video.file);
+    await new Promise((resolve, reject) => {
       uploadTask.on('state_changed',
         (snapshot) => {
-          const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-          setSecretVideoObj(v => ({ ...v, progress }));
+          setVideo(v => ({ ...v, progress: Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) }));
         },
-        (error) => {
-          clearTimeout(timeout);
-          setSecretVideoObj(v => ({ ...v, uploading: false }));
-          if (error.code === 'storage/canceled') {
-            setUploadError('O upload do vídeo foi cancelado por demora excessiva.');
-          }
-          reject(error);
-        },
+        (error) => { setUploadError('Erro ao enviar vídeo.'); reject(error); },
         async () => {
-          clearTimeout(timeout);
           const url = await getDownloadURL(storageRef);
-          setSecretVideoObj(v => ({ ...v, url, uploading: false }));
-          resolve(url);
+          setVideo(v => ({ ...v, url, uploaded: true, progress: 100, name: fileName }));
+          resolve();
         }
       );
     });
   };
 
-  const handleSecretVideoUpload = async (file) => {
-    setUploadError('');
-    await uploadSecretVideo(file);
-  };
+  // Verifica se há upload pendente
+  const hasPendingUploads = photos.some(p => !p.uploaded) || (video && !video.uploaded);
 
-  // Remover vídeo secreto
-  const handleRemoveSecretVideo = async () => {
-    if (secretVideoObj && secretVideoObj.ref) {
-      try { await deleteObject(secretVideoObj.ref); } catch {}
-    }
-    setSecretVideoObj(null);
-  };
-
-  // Substituir vídeo secreto
-  const handleReplaceSecretVideo = (file) => {
-    handleRemoveSecretVideo().then(() => handleSecretVideoUpload(file));
-  };
-
+  // Submit
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title || !message || !startDate || !coupleNames || !musicTitle || !musicArtist) {
       setError('Todos os campos principais são obrigatórios.');
       return;
     }
-    if (secretLoveEnabled && (!secretPassword || !secretMessage || !secretVideoObj || !secretVideoObj.url)) {
+    if (secretLoveEnabled && (!secretPassword || !secretMessage || !video || !video.uploaded)) {
       setError('Para a seção "Secret Love", a senha, a mensagem secreta e o vídeo são obrigatórios.');
       return;
     }
     setError('');
-    onCreateMemory({ 
-      title, message, musicUrl, musicTitle, musicArtist, coupleNames, startDate, photos: photoObjs.map(p => p.url),
-      secretLoveEnabled, secretPassword, secretVideo: secretVideoObj ? secretVideoObj.url : null, secretMessage
+    const selectedStorageUrls = availableStoragePhotos.filter(p => p.selected).map(p => p.url);
+    onCreateMemory({
+      title, message, musicUrl, musicTitle, musicArtist, coupleNames, startDate,
+      photos: [...photos.filter(p => p.uploaded).map(p => p.url), ...selectedStorageUrls],
+      secretLoveEnabled, secretPassword, secretVideo: video && video.uploaded ? video.url : null, secretMessage
     });
   };
 
+  // Remover foto já enviada
+  const handleRemoveUploadedPhoto = (idx) => {
+    setPhotos(prev => prev.filter((_, i) => i !== idx));
+  };
+  // Remover vídeo já enviado
+  const handleRemoveUploadedVideo = () => {
+    setVideo(null);
+  };
+
+  // Drag & drop para fotos
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length > 0) handlePhotoSelection(files);
+  };
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  // Padronizar nomes de handlers
+  const isUploading = hasPendingUploads || loadingMemory;
+
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto w-full bg-slate-800 text-white rounded-2xl shadow-xl">
-      <button onClick={() => onNavigate('home')} className="mb-6 text-emerald-400 hover:text-emerald-300">&larr; Voltar</button>
+      <UploadStatus error={error} uploadError={uploadError} loading={isUploading} />
+      <button onClick={() => onNavigate('home')} className="mb-6 text-emerald-400 hover:text-emerald-300" disabled={isUploading}>&larr; Voltar</button>
       <h2 className="text-3xl font-bold mb-6">Configure sua memória</h2>
       {error && <div className="bg-red-500/20 text-red-300 p-3 rounded-lg mb-4">{error}</div>}
       {uploadError && <div className="bg-red-500/20 text-red-300 p-3 rounded-lg mb-4">{uploadError}</div>}
@@ -342,35 +300,34 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData }) {
         <input type="text" value={musicTitle} onChange={e => setMusicTitle(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Nome da Música"/>
         <input type="text" value={musicArtist} onChange={e => setMusicArtist(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Artista da Música"/>
         <input type="url" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Link da Música (Spotify, YouTube)"/>
-        <div onDrop={handleDrop} onDragOver={handleDragOver} className="border-2 border-dashed border-emerald-400 rounded-lg p-3 mb-2 bg-slate-900/40 cursor-pointer">
-          <label className="text-sm text-slate-400">Fotos Públicas (a primeira será a capa)</label>
-          <input type="file" onChange={e => handlePhotoUpload(Array.from(e.target.files))} multiple accept="image/jpeg,image/png,image/webp" className="w-full text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500 file:text-white hover:file:bg-emerald-600 cursor-pointer"/>
-          <div className="text-xs text-slate-400 mt-1">Arraste e solte ou clique para selecionar. Formatos aceitos: JPG, PNG, WEBP. Máximo {MAX_PHOTOS} fotos, até {MAX_PHOTO_SIZE_MB}MB cada.</div>
-          {photoObjs.length > 0 && (
-            <div className="flex flex-wrap gap-4 mt-2">
-              {photoObjs.map((photo, i) => (
-                <div key={i} className="relative bg-slate-700 rounded-lg p-2 flex flex-col items-center w-28">
-                  <img src={photo.url || ''} alt="Prévia" className="w-20 h-20 object-cover rounded mb-1 bg-slate-900" />
-                  <div className="text-xs text-slate-200 truncate w-full text-center">{photo.name}</div>
-                  <div className="text-xs text-slate-400">{(photo.size/1024/1024).toFixed(2)}MB</div>
-                  <div className="w-full h-2 bg-slate-600 rounded mt-1">
-                    <div className="h-2 bg-emerald-400 rounded" style={{ width: `${photo.progress}%` }}></div>
-                  </div>
-                  <div className="flex gap-1 mt-1">
-                    <label className="text-xs text-blue-400 cursor-pointer">
-                      <input type="file" style={{ display: 'none' }} accept="image/jpeg,image/png,image/webp" onChange={e => handleReplacePhoto(e.target.files[0], i)} />
-                      Substituir
-                    </label>
-                    <button type="button" onClick={() => handleRemovePhoto(i)} className="text-xs text-red-400 ml-2">Remover</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {allUploadsDone && photoObjs.length > 0 && <div className="text-emerald-400 mt-2">Todos os uploads concluídos!</div>}
-        </div>
+        <PhotoGallery
+          photos={photos}
+          setPhotos={setPhotos}
+          availableStoragePhotos={availableStoragePhotos}
+          setAvailableStoragePhotos={setAvailableStoragePhotos}
+          handlePhotoSelection={handlePhotoSelection}
+          handleRemovePhoto={handleRemovePhoto}
+          handleReplacePhoto={handleReplacePhoto}
+          handleUploadPhotos={handleUploadPhotos}
+          isUploading={isUploading}
+        />
+        <VideoSelector
+          video={video}
+          handleVideoSelection={handleVideoSelection}
+          handleRemoveVideo={handleRemoveVideo}
+          handleReplaceVideo={handleReplaceVideo}
+          handleUploadVideo={handleUploadVideo}
+          isUploading={isUploading}
+        />
         <div>
-          <textarea value={message} onChange={e => setMessage(e.target.value)} rows="5" className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Sua Mensagem Especial (pública)..."></textarea>
+          <textarea
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+            rows={5}
+            style={{ minHeight: 100, resize: 'vertical' }}
+            className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none"
+            placeholder="Sua Mensagem Especial (pública)..."
+          ></textarea>
         </div>
         {/* Seção Secret Love */}
         <div className="border-t-2 border-dashed border-slate-600 pt-4 mt-6">
@@ -382,35 +339,60 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData }) {
             <div className="mt-4 space-y-4 p-4 bg-slate-900/50 rounded-lg">
               <h3 className="text-md font-bold text-pink-300">Conteúdo Secreto</h3>
               <input type="password" value={secretPassword} onChange={e => setSecretPassword(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-pink-500 outline-none" placeholder="Crie uma senha para esta seção"/>
-              <textarea value={secretMessage} onChange={e => setSecretMessage(e.target.value)} rows="5" className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-pink-500 outline-none" placeholder="Escreva a sua grande mensagem secreta aqui..."></textarea>
+              <textarea
+                value={secretMessage}
+                onChange={e => setSecretMessage(e.target.value)}
+                rows={5}
+                style={{ minHeight: 100, resize: 'vertical' }}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-pink-500 outline-none"
+                placeholder="Escreva a sua grande mensagem secreta aqui..."
+              ></textarea>
               <div>
                 <label className="text-sm text-slate-400">Vídeo Secreto</label>
-                <input type="file" onChange={e => handleSecretVideoUpload(e.target.files[0])} accept="video/mp4,video/webm,video/ogg" className="w-full text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-pink-500 file:text-white hover:file:bg-pink-600 cursor-pointer"/>
-                <div className="text-xs text-slate-400 mt-1">Formatos aceitos: MP4, WEBM, OGG. Máximo {MAX_VIDEO_SIZE_MB}MB.</div>
-                {secretVideoObj && (
+                <input type="file" onChange={e => handleVideoSelection(e.target.files[0])} accept="video/mp4,video/webm,video/ogg" className="w-full text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-pink-500 file:text-white hover:file:bg-pink-600 cursor-pointer"/>
+                <div className="text-xs text-slate-400 mt-1">Formatos aceitos: MP4, WEBM, OGG. Máximo 50MB.</div>
+                {video && (
                   <div className="flex flex-col items-center gap-2 mt-2 bg-slate-700 rounded-lg p-2 w-56">
-                    <video src={secretVideoObj.url || ''} controls className="w-40 h-24 rounded bg-slate-900" />
-                    <div className="text-xs text-slate-200 truncate w-full text-center">{secretVideoObj.name}</div>
-                    <div className="text-xs text-slate-400">{(secretVideoObj.size/1024/1024).toFixed(2)}MB</div>
+                    <video src={video.url} controls className="w-40 h-24 rounded bg-slate-900" />
+                    <div className="text-xs text-slate-200 truncate w-full text-center">{video.name}</div>
+                    <div className="text-xs text-slate-400">{(video.file?.size/1024/1024).toFixed(2)}MB</div>
                     <div className="w-full h-2 bg-slate-600 rounded mt-1">
-                      <div className="h-2 bg-pink-400 rounded" style={{ width: `${secretVideoObj.progress}%` }}></div>
+                      <div className="h-2 bg-pink-400 rounded" style={{ width: `${video.progress}%` }}></div>
                     </div>
                     <div className="flex gap-1 mt-1">
                       <label className="text-xs text-blue-400 cursor-pointer">
-                        <input type="file" style={{ display: 'none' }} accept="video/mp4,video/webm,video/ogg" onChange={e => handleReplaceSecretVideo(e.target.files[0])} />
+                        <input type="file" style={{ display: 'none' }} accept="video/mp4,video/webm,video/ogg" onChange={e => handleReplaceVideo(e.target.files[0])} />
                         Substituir
                       </label>
-                      <button type="button" onClick={handleRemoveSecretVideo} className="text-xs text-red-400 ml-2">Remover</button>
+                      <button type="button" onClick={handleRemoveVideo} className="text-xs text-red-400 ml-2">Remover</button>
                     </div>
                   </div>
+                )}
+                {/* Botão de upload de vídeo */}
+                {video && !video.uploaded && (
+                  <button
+                    type="button"
+                    onClick={handleUploadVideo}
+                    className="bg-pink-500 hover:bg-pink-600 text-white font-bold py-2 px-4 rounded-lg mt-2"
+                  >
+                    Enviar vídeo
+                  </button>
                 )}
               </div>
             </div>
           )}
         </div>
-        <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-6 rounded-full text-lg shadow-lg transition-transform transform hover:scale-101" disabled={!allUploadsDone}>
-          Criar memória
-        </button>
+        {/* Botão de salvar/criar só habilitado se não houver uploads pendentes */}
+        {initialData && (
+          <button type="submit" disabled={isUploading} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-6 rounded-full text-lg shadow-lg transition-transform transform hover:scale-101 mt-4">
+            Salvar alterações
+          </button>
+        )}
+        {!initialData && (
+          <button type="submit" disabled={isUploading} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-6 rounded-full text-lg shadow-lg transition-transform transform hover:scale-101 mt-4">
+            Criar memória
+          </button>
+        )}
       </form>
     </div>
   );
@@ -432,31 +414,42 @@ function TimeTogether({ startDate }) {
   }, []);
   const start = startDate ? new Date(startDate) : null;
   if (!start || isNaN(start.getTime())) return <span className="text-red-400">Data inválida</span>;
-  let diff = now - start.getTime();
-  if (diff < 0) diff = 0;
-  let ms = diff % 1000;
-  let totalSec = Math.floor(diff / 1000);
-  let sec = totalSec % 60;
-  let totalMin = Math.floor(totalSec / 60);
-  let min = totalMin % 60;
-  let totalHr = Math.floor(totalMin / 60);
-  let hr = totalHr % 24;
-  let totalDays = Math.floor(totalHr / 24);
-  let weeks = Math.floor(totalDays / 7);
-  let days = totalDays % 7;
-  // Aproximação para meses/anos
-  let months = Math.floor(totalDays / 30.4375);
-  let years = Math.floor(months / 12);
-  months = months % 12;
+  let end = new Date(now);
+
+  // Cálculo preciso de anos, meses, semanas, dias, horas, minutos, segundos, milissegundos
+  let years = end.getFullYear() - start.getFullYear();
+  let months = end.getMonth() - start.getMonth();
+  let days = end.getDate() - start.getDate();
+  let hours = end.getHours() - start.getHours();
+  let minutes = end.getMinutes() - start.getMinutes();
+  let seconds = end.getSeconds() - start.getSeconds();
+  let ms = end.getMilliseconds() - start.getMilliseconds();
+
+  if (ms < 0) { ms += 1000; seconds--; }
+  if (seconds < 0) { seconds += 60; minutes--; }
+  if (minutes < 0) { minutes += 60; hours--; }
+  if (hours < 0) { hours += 24; days--; }
+  if (days < 0) {
+    // Pega o último mês do ano anterior se necessário
+    let prevMonth = new Date(end.getFullYear(), end.getMonth(), 0);
+    days += prevMonth.getDate();
+    months--;
+  }
+  if (months < 0) { months += 12; years--; }
+
+  // Agora calcula semanas e dias restantes
+  let weeks = Math.floor(days / 7);
+  days = days % 7;
+
   return (
     <div className="flex flex-wrap gap-2 text-emerald-300 font-mono text-lg mt-2">
       <span>{years} ano{years!==1?'s':''}</span>
       <span>{months} mês{months!==1?'es':''}</span>
       <span>{weeks} semana{weeks!==1?'s':''}</span>
       <span>{days} dia{days!==1?'s':''}</span>
-      <span>{hr}h</span>
-      <span>{min}m</span>
-      <span>{sec}s</span>
+      <span>{hours}h</span>
+      <span>{minutes}m</span>
+      <span>{seconds}s</span>
       <span>{ms.toString().padStart(3,'0')}ms</span>
     </div>
   );
@@ -485,7 +478,7 @@ function SecretLoveSection({ password, videoUrl, secretMessage }) {
             Seu navegador não suporta o player de vídeo.
           </video>
         )}
-        <div className="font-semibold text-lg leading-relaxed text-white whitespace-pre-wrap">{secretMessage}</div>
+        <div className="font-semibold text-lg leading-relaxed text-white whitespace-pre-line break-words w-full max-w-3xl" style={{wordBreak: 'break-word'}}>{secretMessage}</div>
       </div>
     );
   }
@@ -617,7 +610,7 @@ function MemoryPage({ memory, onExit, isCreator, onEditMemory, onDeleteMemory })
         <div className="flex w-full h-fit items-center justify-center mb-4">
           <div className="flex gap-5 p-6 flex-col h-fit w-full z-10 rounded-2xl" style={{ backgroundColor: 'rgb(228, 44, 20)' }}>
             <span className="font-bold text-white text-xl">Mensagem especial</span>
-            <div className="font-bold text-2xl leading-9 text-white whitespace-pre-wrap">{message}</div>
+            <div className="font-bold text-2xl leading-9 text-white whitespace-pre-line break-words w-full max-w-3xl" style={{wordBreak: 'break-word'}}>{message}</div>
           </div>
         </div>
         {/* Galeria de Fotos Públicas Adicionais */}
@@ -688,14 +681,24 @@ export default function App() {
       const q = query(collection(db, 'memorias'), orderBy('createdAt', 'desc'), limit(1));
       const querySnapshot = await getDocs(q);
       let loaded = {};
+      let lastId = null;
       querySnapshot.forEach((docSnap) => {
         loaded[docSnap.id] = { id: docSnap.id, ...docSnap.data() };
+        lastId = docSnap.id;
       });
       setMemories(loaded);
+      if (lastId) setCurrentMemoryId(lastId);
       setLoadingMemory(false);
     }
     fetchLatestMemory();
   }, []);
+
+  // Helper para pegar o ID da última memória
+  const getLastMemoryId = () => {
+    const ids = Object.keys(memories);
+    if (ids.length === 0) return null;
+    return ids[ids.length - 1];
+  };
 
   const handleGoogleLogin = async () => {
     const auth = getAuth(app);
@@ -812,29 +815,64 @@ export default function App() {
   // Função para salvar edição
   const handleSaveEdit = async (updatedData) => {
     if (!currentMemoryId) return;
+    // Atualiza no Firestore
     await handleEditMemory(currentMemoryId, updatedData);
+    // Leva para preview da memória atualizada
+    setDraftMemory({ ...updatedData, id: currentMemoryId });
     setEditMode(false);
-    setPage('memory');
+    setPage('preview');
+    setAdminChoice(null);
   };
 
   const renderPage = () => {
     // Tela de escolha para admin
     if (isCreator && !adminChoice) {
+      const hasMemory = Object.keys(memories).length > 0;
       return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white gap-6">
           <h2 className="text-2xl font-bold mb-2">O que deseja fazer?</h2>
-          <button onClick={() => setAdminChoice('edit')} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-8 rounded-full text-xl shadow-lg transition-transform transform hover:scale-105">Editar memória mais recente</button>
+          <button
+            onClick={() => {
+              if (hasMemory) {
+                setCurrentMemoryId(getLastMemoryId());
+                setAdminChoice('edit');
+              } else {
+                setAdminChoice('no-memory');
+              }
+            }}
+            className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-8 rounded-full text-xl shadow-lg transition-transform transform hover:scale-105"
+          >
+            Editar memória mais recente
+          </button>
+          <button onClick={() => setAdminChoice('new')} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-8 rounded-full text-xl shadow-lg transition-transform transform hover:scale-105">Criar nova memória</button>
+        </div>
+      );
+    }
+    // Mensagem se não houver memória para editar
+    if (isCreator && adminChoice === 'no-memory') {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white gap-6">
+          <h2 className="text-2xl font-bold mb-2">Nenhuma memória encontrada.</h2>
+          <p className="mb-4">Crie uma nova memória para começar.</p>
           <button onClick={() => setAdminChoice('new')} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-8 rounded-full text-xl shadow-lg transition-transform transform hover:scale-105">Criar nova memória</button>
         </div>
       );
     }
     // Se admin escolher editar
-    if (isCreator && adminChoice === 'edit' && currentMemoryId && memories[currentMemoryId]) {
-      return <MemoryForm onCreateMemory={handleSaveEdit} onNavigate={() => { setEditMode(false); setPage('memory'); setAdminChoice(null); }} initialData={memories[currentMemoryId]} />;
+    if (isCreator && adminChoice === 'edit') {
+      if (!currentMemoryId || !memories[currentMemoryId]) {
+        return (
+          <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white gap-6">
+            <h2 className="text-2xl font-bold mb-2">Carregando memória para edição...</h2>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-400"></div>
+          </div>
+        );
+      }
+      return <MemoryForm onCreateMemory={handleSaveEdit} onNavigate={() => { setEditMode(false); setPage('memory'); setAdminChoice(null); }} initialData={memories[currentMemoryId]} loadingMemory={loadingMemory} />;
     }
     // Se admin escolher criar nova
     if (isCreator && adminChoice === 'new') {
-      return <MemoryForm onCreateMemory={handleCreateMemory} onNavigate={() => { setAdminChoice(null); setPage('home'); }} initialData={null} />;
+      return <MemoryForm onCreateMemory={handleCreateMemory} onNavigate={() => { setAdminChoice(null); setPage('home'); }} initialData={null} loadingMemory={loadingMemory} />;
     }
     // Preview só para criação de nova memória
     if (page === 'preview' && draftMemory) {
@@ -850,7 +888,7 @@ export default function App() {
     }
     // Edição de memória existente
     if (page === 'edit' && currentMemoryId && memories[currentMemoryId]) {
-      return <MemoryForm onCreateMemory={handleSaveEdit} onNavigate={() => { setEditMode(false); setPage('memory'); setAdminChoice(null); }} initialData={memories[currentMemoryId]} />;
+      return <MemoryForm onCreateMemory={handleSaveEdit} onNavigate={() => { setEditMode(false); setPage('memory'); setAdminChoice(null); }} initialData={memories[currentMemoryId]} loadingMemory={loadingMemory} />;
     }
     if (page === 'memory') {
       if (currentMemoryId && memories[currentMemoryId]) {
@@ -867,7 +905,7 @@ export default function App() {
     }
     switch (page) {
       case 'form':
-        return isCreator ? <MemoryForm onCreateMemory={handleCreateMemory} onNavigate={setPage} /> : <HomePage onNavigate={setPage} />;
+        return isCreator ? <MemoryForm onCreateMemory={handleCreateMemory} onNavigate={setPage} loadingMemory={loadingMemory} /> : <HomePage onNavigate={setPage} />;
       case 'home':
         return isCreator ? <HomePage onNavigate={setPage} /> : <div className="text-center p-8 text-white bg-slate-900 h-screen flex flex-col justify-center"><h1 className="text-4xl font-bold">Bem-vindo(a) à MY LOVED SOFIA rewind</h1><p className="text-slate-300 mt-2">Acesse uma memória através de um link compartilhado.</p></div>;
       default:
