@@ -1,73 +1,42 @@
-# Cápsula do Tempo Digital - Wrapped
+# Cápsula do Tempo Digital (Firebase)
 
-Este é um app web React para criar cápsulas do tempo digitais, com mensagens, fotos, música e uma seção secreta protegida por senha.
+Plataforma web para criar cápsulas do tempo digitais com persistência no Firebase (Firestore + Storage).
 
-## Como rodar localmente
-
-1. **Clone o repositório:**
-   ```bash
-   git clone <url-do-repo>
-   cd sofi
+## Como rodar
+1. Instale as dependências:
    ```
-2. **Instale as dependências:**
-   ```bash
    npm install
    ```
-3. **Rode o app em modo desenvolvimento:**
-   ```bash
+2. Configure o arquivo `src/firebase.js` com suas credenciais do Firebase.
+3. Rode o projeto:
+   ```
    npm start
    ```
-   O app estará disponível em `http://localhost:3000`.
 
-## Build para produção
-
-```bash
-npm run build
-```
-Os arquivos finais estarão na pasta `build/`.
-
-## Deploy no Firebase Hosting
-
-1. Instale a CLI do Firebase (se ainda não tiver):
-   ```bash
+## Deploy Firebase Hosting
+1. Instale o Firebase CLI:
+   ```
    npm install -g firebase-tools
    ```
-2. Faça login na sua conta Google:
-   ```bash
+2. Faça login:
+   ```
    firebase login
    ```
-3. Inicialize o Firebase Hosting no projeto (responda as perguntas, escolha "build" como pasta pública):
-   ```bash
-   firebase init hosting
+3. Inicialize o projeto:
    ```
-4. Faça o deploy:
-   ```bash
+   firebase init
+   ```
+4. Faça build e deploy:
+   ```
    npm run build
    firebase deploy
    ```
 
-### Exemplo de `firebase.json`:
-```json
-{
-  "hosting": {
-    "public": "build",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      { "source": "**", "destination": "/index.html" }
-    ]
-  }
-}
-```
-
-## Tecnologias usadas
+## Stack
 - React 18
+- Firebase (Auth, Firestore, Storage)
 - TailwindCSS
-- Create React App
 
----
-
-Feito com 💚 
+## Limitações
+- Apenas usuários autenticados anonimamente podem criar cápsulas.
+- As fotos são salvas no Firebase Storage. 
