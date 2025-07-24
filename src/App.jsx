@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db, storage } from './firebase';
+import { checkForUpdates, forceUpdate } from './version';
 import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import {
   collection,
@@ -643,6 +644,13 @@ function MemoryPage({ memory, onExit, isCreator, onEditMemory, onDeleteMemory })
 }
 
 export default function App() {
+  // Verificar atualizações na inicialização
+  useEffect(() => {
+    if (checkForUpdates()) {
+      forceUpdate();
+    }
+  }, []);
+
   const [isCreator, setIsCreator] = useState(false);
   const [user, setUser] = useState(null);
   const [visitorName, setVisitorName] = useState('');
@@ -715,6 +723,7 @@ export default function App() {
     setVisitorStep('ask');
     setVisitorMsg('');
     setPage('home');
+    setCurrentMemoryId(null);
   };
 
   // Lógica de identificação de visitante
@@ -800,7 +809,15 @@ export default function App() {
 
   const handleExitMemory = () => {
     setCurrentMemoryId(null);
-    setPage(isCreator ? 'home' : 'viewer_welcome');
+    if (isCreator) {
+      setPage('home');
+    } else if (user) {
+      // Usuário Google - volta para a tela de identificação
+      setVisitorStep('ask');
+    } else {
+      // Usuário anônimo - volta para a tela de identificação
+      setVisitorStep('ask');
+    }
   }
 
   // Função para iniciar edição de memória existente
@@ -910,7 +927,7 @@ export default function App() {
     }
   };
 
-  // Renderização condicional
+  // Renderização condicional para visitantes (não autenticados)
   if (!isCreator && !user) {
     // Visitante não autenticado
     if (visitorStep === 'ask') {
@@ -941,6 +958,37 @@ export default function App() {
       );
     } else if (visitorStep === 'showMemory') {
       // Mostra a cápsula mais recente (memória)
+      const memoryIds = Object.keys(memories);
+      const lastMemory = memoryIds.length > 0 ? memories[memoryIds[memoryIds.length - 1]] : null;
+      if (lastMemory) {
+        return <MemoryPage memory={lastMemory} onExit={() => setVisitorStep('ask')} />;
+      } else {
+        return <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white"><span>Nenhuma memória encontrada.</span></div>;
+      }
+    }
+  }
+
+  // Renderização condicional para usuários Google autenticados (não criadores)
+  if (!isCreator && user) {
+    if (visitorStep === 'showMsg') {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
+          <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md flex flex-col gap-4 text-center">
+            <span className="text-2xl font-bold">{visitorMsg}</span>
+          </div>
+        </div>
+      );
+    } else if (visitorStep === 'showMemory') {
+      // Mostra a cápsula mais recente (memória)
+      const memoryIds = Object.keys(memories);
+      const lastMemory = memoryIds.length > 0 ? memories[memoryIds[memoryIds.length - 1]] : null;
+      if (lastMemory) {
+        return <MemoryPage memory={lastMemory} onExit={() => setVisitorStep('ask')} />;
+      } else {
+        return <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white"><span>Nenhuma memória encontrada.</span></div>;
+      }
+    } else {
+      // Se não está em nenhum step específico, mostra a memória mais recente diretamente
       const memoryIds = Object.keys(memories);
       const lastMemory = memoryIds.length > 0 ? memories[memoryIds[memoryIds.length - 1]] : null;
       if (lastMemory) {

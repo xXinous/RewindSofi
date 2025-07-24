@@ -3,8 +3,46 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>MY LOVED SOFIA rewind</title>
     <link rel="icon" href="data:," />
+    <script>
+      // Cache busting e versionamento automático
+      (function() {
+        const currentVersion = '0.1.0';
+        const lastVersion = localStorage.getItem('app_version');
+        
+        // Se a versão mudou, limpa o cache e recarrega
+        if (lastVersion !== currentVersion) {
+          localStorage.setItem('app_version', currentVersion);
+          
+          // Limpa cache do service worker se existir
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              for(let registration of registrations) {
+                registration.unregister();
+              }
+            });
+          }
+          
+          // Força recarregamento se não for a primeira visita
+          if (lastVersion) {
+            window.location.reload(true);
+          }
+        }
+        
+        // Adiciona timestamp para evitar cache de recursos
+        const timestamp = Date.now();
+        const links = document.querySelectorAll('link[rel="stylesheet"]');
+        links.forEach(link => {
+          if (link.href && !link.href.includes('?')) {
+            link.href = link.href + '?v=' + timestamp;
+          }
+        });
+      })();
+    </script>
   </head>
   <body class="bg-slate-900">
     <div id="root"></div>
