@@ -460,6 +460,7 @@ function SecretLoveSection({ password, videoUrl, secretMessage }) {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [passwordAttempt, setPasswordAttempt] = useState('');
   const [error, setError] = useState('');
+  const [videoEnded, setVideoEnded] = useState(false);
 
   const handleUnlock = () => {
     if (passwordAttempt === password) {
@@ -470,14 +471,38 @@ function SecretLoveSection({ password, videoUrl, secretMessage }) {
     }
   };
 
+  const handleVideoEnded = () => {
+    setVideoEnded(true);
+  };
+
   if (isUnlocked) {
     return (
       <div className="flex flex-col gap-5 p-6 h-fit w-full z-10 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600">
         <h3 className="font-bold text-white text-xl">Secret Love ✨</h3>
-        {videoUrl && (
-          <video controls src={videoUrl} className="w-full rounded-xl shadow-lg aspect-video">
+        {videoUrl && !videoEnded && (
+          <video 
+            controls 
+            src={videoUrl} 
+            className="w-full rounded-xl shadow-lg aspect-video"
+            onEnded={handleVideoEnded}
+          >
             Seu navegador não suporta o player de vídeo.
           </video>
+        )}
+        {videoEnded && (
+          <div className="w-full rounded-xl shadow-lg">
+            <iframe 
+              data-testid="embed-iframe" 
+              style={{borderRadius: '12px'}} 
+              src="https://open.spotify.com/embed/playlist/5f3kszyKEEZj4YhukoEEus?utm_source=generator" 
+              width="100%" 
+              height="352" 
+              frameBorder="0" 
+              allowFullScreen="" 
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
+              loading="lazy"
+            ></iframe>
+          </div>
         )}
         <div className="font-semibold text-lg leading-relaxed text-white whitespace-pre-line break-words w-full max-w-3xl" style={{wordBreak: 'break-word'}}>{secretMessage}</div>
       </div>
