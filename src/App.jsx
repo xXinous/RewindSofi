@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, storage } from './firebase';
 import { checkForUpdates, forceUpdate } from './version';
 import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
@@ -51,7 +51,7 @@ const LockIcon = ({ className }) => (
 const getEmbedUrl = (url) => {
   if (!url) return null;
   let youtubeMatch = url.match(/(?:https?:\/\/)?(?:www\.)?(?:m\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=|embed\/|v\/|)([\w-]{11})(?:\S+)?/);
-  if (youtubeMatch && youtubeMatch[1]) return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+  if (youtubeMatch && youtubeMatch[1]) return `https://www.youtube.com/embed/${youtubeMatch[1]}?enablejsapi=1`;
   let spotifyMatch = url.match(/(?:https?:\/\/)?open\.spotify\.com\/(track|album|playlist)\/([a-zA-Z0-9]+)/);
   if (spotifyMatch) return `https://open.spotify.com/embed/${spotifyMatch[1]}/${spotifyMatch[2]}`;
   return null;
@@ -461,6 +461,43 @@ function SecretLoveSection({ password, videoUrl, secretMessage }) {
   const [passwordAttempt, setPasswordAttempt] = useState('');
   const [error, setError] = useState('');
   const [videoEnded, setVideoEnded] = useState(false);
+  const [showPlaylist, setShowPlaylist] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [playlistStarted, setPlaylistStarted] = useState(false);
+  const playlistRef = useRef(null);
+  const videoRef = useRef(null);
+  const youtubeRef = useRef(null);
+
+  // Controlar YouTube quando a seção é desbloqueada
+  useEffect(() => {
+    if (isUnlocked) {
+      // Pausar e mutar YouTube
+      const youtubeIframe = document.querySelector('iframe[src*="youtube"]');
+      if (youtubeIframe) {
+        youtubeIframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+        youtubeIframe.contentWindow.postMessage('{"event":"command","func":"mute","args":""}', '*');
+      }
+    }
+  }, [isUnlocked]);
+
+  // Controlar playlist quando vídeo toca
+  useEffect(() => {
+    if (isVideoPlaying && playlistStarted) {
+      // Pausar playlist do Spotify
+      const spotifyIframe = playlistRef.current?.querySelector('iframe');
+      if (spotifyIframe) {
+        spotifyIframe.contentWindow.postMessage('{"command":"pause"}', '*');
+      }
+    } else if (videoEnded && playlistStarted) {
+      // Retomar playlist quando vídeo termina
+      setTimeout(() => {
+        const spotifyIframe = playlistRef.current?.querySelector('iframe');
+        if (spotifyIframe) {
+          spotifyIframe.contentWindow.postMessage('{"command":"play"}', '*');
+        }
+      }, 1000);
+    }
+  }, [isVideoPlaying, videoEnded, playlistStarted]);
 
   const handleUnlock = () => {
     if (passwordAttempt === password) {
@@ -471,29 +508,92 @@ function SecretLoveSection({ password, videoUrl, secretMessage }) {
     }
   };
 
+  const handleVideoPlay = () => {
+    setIsVideoPlaying(true);
+  };
+
+  const handleVideoPause = () => {
+    setIsVideoPlaying(false);
+  };
+
   const handleVideoEnded = () => {
+    setIsVideoPlaying(false);
     setVideoEnded(true);
+    // Pequeno delay para animação
+    setTimeout(() => {
+      setShowPlaylist(true);
+      // Auto-scroll para centralizar a playlist
+      setTimeout(() => {
+        if (playlistRef.current) {
+          playlistRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+        }
+      }, 300);
+    }, 500);
+  };
+
+  const handleStartPlaylist = () => {
+    setPlaylistStarted(true);
+    // Tentar iniciar a playlist
+    setTimeout(() => {
+      const spotifyIframe = playlistRef.current?.querySelector('iframe');
+      if (spotifyIframe) {
+        spotifyIframe.contentWindow.postMessage('{"command":"play"}', '*');
+      }
+    }, 500);
   };
 
   if (isUnlocked) {
     return (
       <div className="flex flex-col gap-5 p-6 h-fit w-full z-10 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600">
         <h3 className="font-bold text-white text-xl">Secret Love ✨</h3>
-        {videoUrl && !videoEnded && (
+        
+        {/* Vídeo sempre visível */}
+        {videoUrl && (
           <video 
+            ref={videoRef}
             controls 
             src={videoUrl} 
             className="w-full rounded-xl shadow-lg aspect-video"
+            onPlay={handleVideoPlay}
+            onPause={handleVideoPause}
             onEnded={handleVideoEnded}
           >
             Seu navegador não suporta o player de vídeo.
           </video>
         )}
+        
+        {/* Playlist com animação */}
         {videoEnded && (
-          <div className="w-full rounded-xl shadow-lg">
+          <div 
+            ref={playlistRef}
+            className={`w-full rounded-xl shadow-lg transition-all duration-700 ease-out ${
+              showPlaylist 
+                ? 'opacity-100 transform translate-y-0' 
+                : 'opacity-0 transform translate-y-8'
+            }`}
+          >
+            <div className="bg-gradient-to-r from-green-400 to-green-600 p-2 rounded-t-xl">
+              <div className="flex items-center justify-between text-white text-sm font-semibold">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+                  <span>🎵 Playlist Especial</span>
+                </div>
+                {!playlistStarted && (
+                  <button 
+                    onClick={handleStartPlaylist}
+                    className="bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    ▶️ Iniciar Playlist
+                  </button>
+                )}
+              </div>
+            </div>
             <iframe 
               data-testid="embed-iframe" 
-              style={{borderRadius: '12px'}} 
+              style={{borderRadius: '0 0 12px 12px'}} 
               src="https://open.spotify.com/embed/playlist/5f3kszyKEEZj4YhukoEEus?utm_source=generator" 
               width="100%" 
               height="352" 
@@ -504,6 +604,7 @@ function SecretLoveSection({ password, videoUrl, secretMessage }) {
             ></iframe>
           </div>
         )}
+        
         <div className="font-semibold text-lg leading-relaxed text-white whitespace-pre-line break-words w-full max-w-3xl" style={{wordBreak: 'break-word'}}>{secretMessage}</div>
       </div>
     );
@@ -655,7 +756,7 @@ function MemoryPage({ memory, onExit, isCreator, onEditMemory, onDeleteMemory })
         )}
         {/* Imagem Final */}
         <div className="flex w-full h-fit items-center justify-center mb-6">
-          <img alt="wrapped-banner" className="w-full h-auto rounded-2xl" src="https://placehold.co/800x400/010101/FFF?text=TimeCapsule" />
+          <img alt="wrapped-banner" className="w-full h-auto rounded-2xl" src="https://placehold.co/800x400/010101/FFF?text=Para%20a%20melhor%20coisa%20que%20me%20aconteceu%20s2" />
         </div>
         {isCreator && (
           <div className="flex justify-end gap-2 mt-4">
