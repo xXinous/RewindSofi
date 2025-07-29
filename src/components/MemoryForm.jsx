@@ -50,7 +50,14 @@ export default function MemoryForm({ onCreateMemory, onNavigate, canCreate }) {
         </div>
         <input type="text" value={musicTitle} onChange={e => setMusicTitle(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Nome da Música"/>
         <input type="text" value={musicArtist} onChange={e => setMusicArtist(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Artista da Música"/>
-        <input type="url" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Link da Música (Spotify, YouTube)"/>
+        <div>
+          <input type="text" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Código de incorporação do YouTube ou link do Spotify"/>
+          <div className="text-xs text-slate-400 mt-1">
+            <strong>Para YouTube:</strong> Cole o código de incorporação completo (iframe) do YouTube. 
+            <br/>Para obter: Clique em "Compartilhar" → "Incorporar" → Copie o código iframe.
+            <br/><strong>Para Spotify:</strong> Cole o link direto da música/playlist.
+          </div>
+        </div>
         
         <div>
           <label className="text-sm text-slate-400">Fotos (a primeira será a capa)</label>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { auth, db, storage } from './firebase';
 import { checkForUpdates, forceUpdate } from './version';
 import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
@@ -18,46 +18,114 @@ import PhotoGallery from './PhotoGallery';
 import VideoSelector from './VideoSelector';
 import UploadStatus from './UploadStatus';
 
-// --- ÍCONES SVG COMO COMPONENTES ---
-const PlayIcon = ({ className }) => (
+// --- ÍCONES SVG COMO COMPONENTES (MEMOIZADOS) ---
+const PlayIcon = React.memo(({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-);
-const SkipBackIcon = ({ className }) => (
+));
+const SkipBackIcon = React.memo(({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" x2="5" y1="19" y2="5"></line></svg>
-);
-const SkipForwardIcon = ({ className }) => (
+));
+const SkipForwardIcon = React.memo(({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" x2="19" y1="5" y2="19"></line></svg>
-);
-const ShuffleIcon = ({ className }) => (
+));
+const ShuffleIcon = React.memo(({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m18 14 4 4-4 4"></path><path d="m18 2 4 4-4 4"></path><path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22"></path><path d="M2 6h1.972a4 4 0 0 1 3.6 2.2"></path><path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45"></path></svg>
-);
-const RepeatIcon = ({ className }) => (
+));
+const RepeatIcon = React.memo(({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m17 2 4 4-4 4"></path><path d="M3 11v-1a4 4 0 0 1 4-4h14"></path><path d="m7 22-4-4 4-4"></path><path d="M21 13v1a4 4 0 0 1-4 4H3"></path></svg>
-);
-const ChevronDownIcon = ({ className }) => (
+));
+const ChevronDownIcon = React.memo(({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6"></path></svg>
-);
-const EllipsisIcon = ({ className }) => (
+));
+const EllipsisIcon = React.memo(({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
-);
-const CameraIcon = ({ className }) => (
+));
+const CameraIcon = React.memo(({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
-);
-const LockIcon = ({ className }) => (
+));
+const LockIcon = React.memo(({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-);
+));
 
-// --- FUNÇÕES UTILITÁRIAS ---
-const getEmbedUrl = (url) => {
-  if (!url) return null;
-  let youtubeMatch = url.match(/(?:https?:\/\/)?(?:www\.)?(?:m\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=|embed\/|v\/|)([\w-]{11})(?:\S+)?/);
-  if (youtubeMatch && youtubeMatch[1]) return `https://www.youtube.com/embed/${youtubeMatch[1]}?enablejsapi=1`;
-  let spotifyMatch = url.match(/(?:https?:\/\/)?open\.spotify\.com\/(track|album|playlist)\/([a-zA-Z0-9]+)/);
-  if (spotifyMatch) return `https://open.spotify.com/embed/${spotifyMatch[1]}/${spotifyMatch[2]}`;
-  return null;
+// --- FUNÇÕES UTILITÁRIAS (OTIMIZADAS) ---
+const getEmbedUrl = (input) => {
+  if (!input) return null;
+  try {
+    // Verificar se é um código de incorporação do YouTube
+    let embedMatch = input.match(/<iframe[^>]*src="([^"]*youtube\.com\/embed\/[^"]*)"[^>]*>/i);
+    if (embedMatch && embedMatch[1]) {
+      // Adicionar enablejsapi=1 se não estiver presente
+      let embedUrl = embedMatch[1];
+      if (!embedUrl.includes('enablejsapi=1')) {
+        embedUrl += (embedUrl.includes('?') ? '&' : '?') + 'enablejsapi=1';
+      }
+      return embedUrl;
+    }
+    
+    // Verificar se é uma URL direta do YouTube
+    let youtubeMatch = input.match(/(?:https?:\/\/)?(?:www\.)?(?:m\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=|embed\/|v\/|)([\w-]{11})(?:\S+)?/);
+    if (youtubeMatch && youtubeMatch[1]) return `https://www.youtube.com/embed/${youtubeMatch[1]}?enablejsapi=1`;
+    
+    // Verificar se é uma URL do Spotify
+    let spotifyMatch = input.match(/(?:https?:\/\/)?open\.spotify\.com\/(track|album|playlist)\/([a-zA-Z0-9]+)/);
+    if (spotifyMatch) return `https://open.spotify.com/embed/${spotifyMatch[1]}/${spotifyMatch[2]}`;
+    
+    return null;
+  } catch (error) {
+    console.error('Erro ao processar input:', error);
+    return null;
+  }
 };
 
-function HomePage({ onNavigate }) {
+const formatTime = (seconds) => {
+  if (!seconds || isNaN(seconds)) return '0:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+// --- HOOKS PERSONALIZADOS ---
+const useLocalStorage = (key, initialValue) => {
+  const [storedValue, setStoredValue] = useState(() => {
+    try {
+      const item = window.localStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      console.error('Erro ao ler do localStorage:', error);
+      return initialValue;
+    }
+  });
+
+  const setValue = useCallback((value) => {
+    try {
+      setStoredValue(value);
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      console.error('Erro ao salvar no localStorage:', error);
+    }
+  }, [key]);
+
+  return [storedValue, setValue];
+};
+
+const useDebounce = (value, delay) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+};
+
+// --- COMPONENTES OTIMIZADOS ---
+const HomePage = React.memo(({ onNavigate }) => {
   return (
     <div className="text-center p-8 max-w-2xl mx-auto bg-slate-900 text-white h-screen flex flex-col justify-center">
       <h1 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 mb-4">MY LOVED SOFIA rewind</h1>
@@ -67,7 +135,327 @@ function HomePage({ onNavigate }) {
       </button>
     </div>
   );
-}
+});
+
+const TimeTogether = React.memo(({ startDate }) => {
+  const [now, setNow] = useState(Date.now());
+  
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 50);
+    return () => clearInterval(interval);
+  }, []);
+
+  const timeData = useMemo(() => {
+    const start = startDate ? new Date(startDate) : null;
+    if (!start || isNaN(start.getTime())) return null;
+    
+    let end = new Date(now);
+    let years = end.getFullYear() - start.getFullYear();
+    let months = end.getMonth() - start.getMonth();
+    let days = end.getDate() - start.getDate();
+    let hours = end.getHours() - start.getHours();
+    let minutes = end.getMinutes() - start.getMinutes();
+    let seconds = end.getSeconds() - start.getSeconds();
+    let ms = end.getMilliseconds() - start.getMilliseconds();
+
+    if (ms < 0) { ms += 1000; seconds--; }
+    if (seconds < 0) { seconds += 60; minutes--; }
+    if (minutes < 0) { minutes += 60; hours--; }
+    if (hours < 0) { hours += 24; days--; }
+    if (days < 0) {
+      let prevMonth = new Date(end.getFullYear(), end.getMonth(), 0);
+      days += prevMonth.getDate();
+      months--;
+    }
+    if (months < 0) { months += 12; years--; }
+
+    let weeks = Math.floor(days / 7);
+    days = days % 7;
+
+    return { years, months, weeks, days, hours, minutes, seconds };
+  }, [startDate, now]);
+
+  if (!timeData) return <span className="text-red-400">Data inválida</span>;
+
+  const timeUnits = [
+    { value: timeData.years, label: 'ano', color: 'from-emerald-500 to-emerald-600', textColor: 'text-emerald-100' },
+    { value: timeData.months, label: 'mês', color: 'from-cyan-500 to-cyan-600', textColor: 'text-cyan-100' },
+    { value: timeData.weeks, label: 'semana', color: 'from-blue-500 to-blue-600', textColor: 'text-blue-100' },
+    { value: timeData.days, label: 'dia', color: 'from-purple-500 to-purple-600', textColor: 'text-purple-100' },
+    { value: timeData.hours, label: 'hora', color: 'from-pink-500 to-pink-600', textColor: 'text-pink-100' },
+    { value: timeData.minutes, label: 'min', color: 'from-orange-500 to-orange-600', textColor: 'text-orange-100' },
+    { value: timeData.seconds, label: 'seg', color: 'from-red-500 to-red-600', textColor: 'text-red-100' }
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-3 mt-4">
+      {timeUnits.map((unit, index) => (
+        <div key={index} className={`bg-gradient-to-br ${unit.color} rounded-xl p-3 text-center min-w-[80px] transform hover:scale-105 transition-all duration-300 shadow-lg`}>
+          <div className="text-2xl font-bold text-white">{unit.value}</div>
+          <div className={`text-xs ${unit.textColor}`}>
+            {unit.label}{unit.value !== 1 ? (unit.label === 'mês' ? 'es' : 's') : ''}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+});
+
+const SecretLoveSection = React.memo(({ password, videoUrl, secretMessage }) => {
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [passwordAttempt, setPasswordAttempt] = useState('');
+  const [error, setError] = useState('');
+  const [videoEnded, setVideoEnded] = useState(false);
+  const [showPlaylist, setShowPlaylist] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [playlistStarted, setPlaylistStarted] = useState(false);
+  const [showAnimation, setShowAnimation] = useState(false);
+  const [animationStep, setAnimationStep] = useState(0);
+  const playlistRef = useRef(null);
+  const videoRef = useRef(null);
+
+  // Controlar YouTube quando a seção é desbloqueada
+  useEffect(() => {
+    if (isUnlocked) {
+      try {
+        const youtubeIframe = document.querySelector('iframe[src*="youtube"]');
+        if (youtubeIframe) {
+          youtubeIframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+          youtubeIframe.contentWindow.postMessage('{"event":"command","func":"mute","args":""}', '*');
+        }
+      } catch (error) {
+        console.error('Erro ao controlar YouTube:', error);
+      }
+    }
+  }, [isUnlocked]);
+
+  // Controlar playlist quando vídeo toca
+  useEffect(() => {
+    if (isVideoPlaying && playlistStarted) {
+      try {
+        const spotifyIframe = playlistRef.current?.querySelector('iframe');
+        if (spotifyIframe) {
+          spotifyIframe.contentWindow.postMessage('{"command":"pause"}', '*');
+        }
+      } catch (error) {
+        console.error('Erro ao pausar Spotify:', error);
+      }
+    } else if (videoEnded && playlistStarted) {
+      setTimeout(() => {
+        try {
+          const spotifyIframe = playlistRef.current?.querySelector('iframe');
+          if (spotifyIframe) {
+            spotifyIframe.contentWindow.postMessage('{"command":"play"}', '*');
+          }
+        } catch (error) {
+          console.error('Erro ao retomar Spotify:', error);
+        }
+      }, 1000);
+    }
+  }, [isVideoPlaying, videoEnded, playlistStarted]);
+
+  const handleUnlock = () => {
+    if (passwordAttempt === password) {
+      setShowAnimation(true);
+      setError('');
+      
+      const animationSteps = [
+        { time: 0, text: "✨ Desbloqueando o amor..." },
+        { time: 2000, text: "💕 Carregando memórias especiais..." },
+        { time: 4000, text: "🌹 Preparando surpresas..." },
+        { time: 6000, text: "💫 Quase lá..." },
+        { time: 8000, text: "💝 Abrindo o coração..." },
+        { time: 10000, text: "💖 Secret Love ativado!" }
+      ];
+      
+      animationSteps.forEach((step, index) => {
+        setTimeout(() => {
+          setAnimationStep(index);
+        }, step.time);
+      });
+      
+      setTimeout(() => {
+        setIsUnlocked(true);
+        setShowAnimation(false);
+      }, 10000);
+    } else {
+      setError('Senha incorreta. Tente novamente.');
+    }
+  };
+
+  const handleVideoPlay = () => {
+    setIsVideoPlaying(true);
+  };
+
+  const handleVideoPause = () => {
+    setIsVideoPlaying(false);
+  };
+
+  const handleVideoEnded = () => {
+    setIsVideoPlaying(false);
+    setVideoEnded(true);
+    setTimeout(() => {
+      setShowPlaylist(true);
+      setTimeout(() => {
+        if (playlistRef.current) {
+          playlistRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+        }
+      }, 300);
+    }, 500);
+  };
+
+  const handleStartPlaylist = () => {
+    setPlaylistStarted(true);
+    setTimeout(() => {
+      try {
+        const spotifyIframe = playlistRef.current?.querySelector('iframe');
+        if (spotifyIframe) {
+          spotifyIframe.contentWindow.postMessage('{"command":"play"}', '*');
+        }
+      } catch (error) {
+        console.error('Erro ao iniciar playlist:', error);
+      }
+    }, 500);
+  };
+
+  if (showAnimation) {
+    const animationTexts = [
+      "✨ Desbloqueando o amor...",
+      "💕 Carregando memórias especiais...",
+      "🌹 Preparando surpresas...",
+      "💫 Quase lá...",
+      "💝 Abrindo o coração...",
+      "💖 Secret Love ativado!"
+    ];
+    
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+        <div className="bg-gradient-to-br from-pink-500 via-rose-500 to-purple-600 p-8 rounded-3xl shadow-2xl text-center max-w-md mx-4">
+          <div className="mb-6">
+            <div className="w-24 h-24 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center animate-pulse">
+              <span className="text-4xl">💖</span>
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-2">Secret Love</h3>
+            <p className="text-white/90 text-lg animate-fade-in">
+              {animationTexts[animationStep]}
+            </p>
+          </div>
+          
+          <div className="w-full bg-white/20 rounded-full h-2 mb-4">
+            <div 
+              className="bg-white rounded-full h-2 transition-all duration-1000 ease-out"
+              style={{ width: `${((animationStep + 1) / animationTexts.length) * 100}%` }}
+            ></div>
+          </div>
+          
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            {[...Array(20)].map((_, i) => (
+              <div
+                key={i}
+                className="absolute text-pink-300 animate-float"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  top: `${Math.random() * 100}%`,
+                  animationDelay: `${Math.random() * 3}s`,
+                  animationDuration: `${3 + Math.random() * 2}s`
+                }}
+              >
+                {['💕', '💖', '💝', '🌹', '✨'][Math.floor(Math.random() * 5)]}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isUnlocked) {
+    return (
+      <div className="flex flex-col gap-5 p-6 h-fit w-full z-10 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 animate-fade-in">
+        <h3 className="font-bold text-white text-xl">Secret Love ✨</h3>
+        
+        {videoUrl && (
+          <video 
+            ref={videoRef}
+            controls 
+            src={videoUrl} 
+            className="w-full rounded-xl shadow-lg aspect-video"
+            onPlay={handleVideoPlay}
+            onPause={handleVideoPause}
+            onEnded={handleVideoEnded}
+          >
+            Seu navegador não suporta o player de vídeo.
+          </video>
+        )}
+        
+        {videoEnded && (
+          <div 
+            ref={playlistRef}
+            className={`w-full rounded-xl shadow-lg transition-all duration-700 ease-out ${
+              showPlaylist 
+                ? 'opacity-100 transform translate-y-0' 
+                : 'opacity-0 transform translate-y-8'
+            }`}
+          >
+            <div className="bg-gradient-to-r from-green-400 to-green-600 p-2 rounded-t-xl">
+              <div className="flex items-center justify-between text-white text-sm font-semibold">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+                  <span>🎵 Playlist Especial</span>
+                </div>
+                {!playlistStarted && (
+                  <button 
+                    onClick={handleStartPlaylist}
+                    className="bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    ▶️ Iniciar Playlist
+                  </button>
+                )}
+              </div>
+            </div>
+            <iframe 
+              data-testid="embed-iframe" 
+              style={{borderRadius: '0 0 12px 12px'}} 
+              src="https://open.spotify.com/embed/playlist/5f3kszyKEEZj4YhukoEEus?utm_source=generator" 
+              width="100%" 
+              height="352" 
+              frameBorder="0" 
+              allowFullScreen="" 
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
+              loading="lazy"
+            ></iframe>
+          </div>
+        )}
+        
+        <div className="font-semibold text-lg leading-relaxed text-white whitespace-pre-line break-words w-full max-w-3xl" style={{wordBreak: 'break-word'}}>{secretMessage}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 p-6 h-fit w-full z-10 rounded-2xl bg-slate-800/80 border-2 border-dashed border-pink-400 text-center">
+      <LockIcon className="w-10 h-10 mx-auto text-pink-400"/>
+      <h3 className="font-bold text-white text-xl">Secret Love</h3>
+      <p className="text-slate-300">Esta área contém uma surpresa especial e é protegida por senha.</p>
+      <div className="flex flex-col sm:flex-row gap-2 justify-center">
+        <input 
+          type="password" 
+          value={passwordAttempt}
+          onChange={(e) => setPasswordAttempt(e.target.value)}
+          className="bg-slate-700 border border-slate-600 rounded-lg p-2 text-white text-center focus:ring-2 focus:ring-pink-500 outline-none"
+          placeholder="Digite a senha"
+        />
+        <button onClick={handleUnlock} className="bg-pink-500 hover:bg-pink-600 text-white font-bold py-2 px-4 rounded-lg">
+          Desbloquear
+        </button>
+      </div>
+      {error && <p className="text-red-400 mt-2">{error}</p>}
+    </div>
+  );
+});
 
 function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) {
   // Estados principais do formulário
@@ -122,12 +510,19 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
         const photosRef = ref(storage, 'memories/photos/');
         const res = await listAll(photosRef);
         const urls = await Promise.all(res.items.map(async (itemRef) => {
-          const url = await getDownloadURL(itemRef);
-          return { url, name: itemRef.name, selected: false };
+          try {
+            const url = await getDownloadURL(itemRef);
+            return { url, name: itemRef.name, selected: false };
+          } catch (error) {
+            console.warn('Erro ao carregar imagem do Storage:', error);
+            return null;
+          }
         }));
-        setAvailableStoragePhotos(urls);
+        // Filtrar URLs nulas
+        const validUrls = urls.filter(url => url !== null);
+        setAvailableStoragePhotos(validUrls);
       } catch (e) {
-        // Se não houver fotos, não faz nada
+        console.warn('Erro ao buscar fotos do Storage:', e);
       }
     }
     fetchStoragePhotos();
@@ -300,7 +695,14 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
         </div>
         <input type="text" value={musicTitle} onChange={e => setMusicTitle(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Nome da Música"/>
         <input type="text" value={musicArtist} onChange={e => setMusicArtist(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Artista da Música"/>
-        <input type="url" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Link da Música (Spotify, YouTube)"/>
+        <div>
+          <input type="text" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Código de incorporação do YouTube ou link do Spotify"/>
+          <div className="text-xs text-slate-400 mt-1">
+            <strong>Para YouTube:</strong> Cole o código de incorporação completo (iframe) do YouTube. 
+            <br/>Para obter: Clique em "Compartilhar" → "Incorporar" → Copie o código iframe.
+            <br/><strong>Para Spotify:</strong> Cole o link direto da música/playlist.
+          </div>
+        </div>
         <PhotoGallery
           photos={photos}
           setPhotos={setPhotos}
@@ -399,243 +801,66 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
   );
 }
 
-function parseDateTimeBR(str) {
-  // Espera formato DD/MM/AAAA HH:mm
-  const match = str.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
-  if (!match) return null;
-  const [_, dd, mm, yyyy, hh, min] = match;
-  return new Date(`${yyyy}-${mm}-${dd}T${hh}:${min}:00`);
-}
-
-function TimeTogether({ startDate }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 50);
-    return () => clearInterval(interval);
-  }, []);
-  const start = startDate ? new Date(startDate) : null;
-  if (!start || isNaN(start.getTime())) return <span className="text-red-400">Data inválida</span>;
-  let end = new Date(now);
-
-  // Cálculo preciso de anos, meses, semanas, dias, horas, minutos, segundos, milissegundos
-  let years = end.getFullYear() - start.getFullYear();
-  let months = end.getMonth() - start.getMonth();
-  let days = end.getDate() - start.getDate();
-  let hours = end.getHours() - start.getHours();
-  let minutes = end.getMinutes() - start.getMinutes();
-  let seconds = end.getSeconds() - start.getSeconds();
-  let ms = end.getMilliseconds() - start.getMilliseconds();
-
-  if (ms < 0) { ms += 1000; seconds--; }
-  if (seconds < 0) { seconds += 60; minutes--; }
-  if (minutes < 0) { minutes += 60; hours--; }
-  if (hours < 0) { hours += 24; days--; }
-  if (days < 0) {
-    // Pega o último mês do ano anterior se necessário
-    let prevMonth = new Date(end.getFullYear(), end.getMonth(), 0);
-    days += prevMonth.getDate();
-    months--;
-  }
-  if (months < 0) { months += 12; years--; }
-
-  // Agora calcula semanas e dias restantes
-  let weeks = Math.floor(days / 7);
-  days = days % 7;
-
-  return (
-    <div className="flex flex-wrap gap-2 text-emerald-300 font-mono text-lg mt-2">
-      <span>{years} ano{years!==1?'s':''}</span>
-      <span>{months} mês{months!==1?'es':''}</span>
-      <span>{weeks} semana{weeks!==1?'s':''}</span>
-      <span>{days} dia{days!==1?'s':''}</span>
-      <span>{hours}h</span>
-      <span>{minutes}m</span>
-      <span>{seconds}s</span>
-      <span>{ms.toString().padStart(3,'0')}ms</span>
-    </div>
-  );
-}
-
-function SecretLoveSection({ password, videoUrl, secretMessage }) {
-  const [isUnlocked, setIsUnlocked] = useState(false);
-  const [passwordAttempt, setPasswordAttempt] = useState('');
-  const [error, setError] = useState('');
-  const [videoEnded, setVideoEnded] = useState(false);
-  const [showPlaylist, setShowPlaylist] = useState(false);
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
-  const [playlistStarted, setPlaylistStarted] = useState(false);
-  const playlistRef = useRef(null);
-  const videoRef = useRef(null);
-  const youtubeRef = useRef(null);
-
-  // Controlar YouTube quando a seção é desbloqueada
-  useEffect(() => {
-    if (isUnlocked) {
-      // Pausar e mutar YouTube
-      const youtubeIframe = document.querySelector('iframe[src*="youtube"]');
-      if (youtubeIframe) {
-        youtubeIframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-        youtubeIframe.contentWindow.postMessage('{"event":"command","func":"mute","args":""}', '*');
-      }
-    }
-  }, [isUnlocked]);
-
-  // Controlar playlist quando vídeo toca
-  useEffect(() => {
-    if (isVideoPlaying && playlistStarted) {
-      // Pausar playlist do Spotify
-      const spotifyIframe = playlistRef.current?.querySelector('iframe');
-      if (spotifyIframe) {
-        spotifyIframe.contentWindow.postMessage('{"command":"pause"}', '*');
-      }
-    } else if (videoEnded && playlistStarted) {
-      // Retomar playlist quando vídeo termina
-      setTimeout(() => {
-        const spotifyIframe = playlistRef.current?.querySelector('iframe');
-        if (spotifyIframe) {
-          spotifyIframe.contentWindow.postMessage('{"command":"play"}', '*');
-        }
-      }, 1000);
-    }
-  }, [isVideoPlaying, videoEnded, playlistStarted]);
-
-  const handleUnlock = () => {
-    if (passwordAttempt === password) {
-      setIsUnlocked(true);
-      setError('');
-    } else {
-      setError('Senha incorreta. Tente novamente.');
-    }
-  };
-
-  const handleVideoPlay = () => {
-    setIsVideoPlaying(true);
-  };
-
-  const handleVideoPause = () => {
-    setIsVideoPlaying(false);
-  };
-
-  const handleVideoEnded = () => {
-    setIsVideoPlaying(false);
-    setVideoEnded(true);
-    // Pequeno delay para animação
-    setTimeout(() => {
-      setShowPlaylist(true);
-      // Auto-scroll para centralizar a playlist
-      setTimeout(() => {
-        if (playlistRef.current) {
-          playlistRef.current.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'center' 
-          });
-        }
-      }, 300);
-    }, 500);
-  };
-
-  const handleStartPlaylist = () => {
-    setPlaylistStarted(true);
-    // Tentar iniciar a playlist
-    setTimeout(() => {
-      const spotifyIframe = playlistRef.current?.querySelector('iframe');
-      if (spotifyIframe) {
-        spotifyIframe.contentWindow.postMessage('{"command":"play"}', '*');
-      }
-    }, 500);
-  };
-
-  if (isUnlocked) {
-    return (
-      <div className="flex flex-col gap-5 p-6 h-fit w-full z-10 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600">
-        <h3 className="font-bold text-white text-xl">Secret Love ✨</h3>
-        
-        {/* Vídeo sempre visível */}
-        {videoUrl && (
-          <video 
-            ref={videoRef}
-            controls 
-            src={videoUrl} 
-            className="w-full rounded-xl shadow-lg aspect-video"
-            onPlay={handleVideoPlay}
-            onPause={handleVideoPause}
-            onEnded={handleVideoEnded}
-          >
-            Seu navegador não suporta o player de vídeo.
-          </video>
-        )}
-        
-        {/* Playlist com animação */}
-        {videoEnded && (
-          <div 
-            ref={playlistRef}
-            className={`w-full rounded-xl shadow-lg transition-all duration-700 ease-out ${
-              showPlaylist 
-                ? 'opacity-100 transform translate-y-0' 
-                : 'opacity-0 transform translate-y-8'
-            }`}
-          >
-            <div className="bg-gradient-to-r from-green-400 to-green-600 p-2 rounded-t-xl">
-              <div className="flex items-center justify-between text-white text-sm font-semibold">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
-                  <span>🎵 Playlist Especial</span>
-                </div>
-                {!playlistStarted && (
-                  <button 
-                    onClick={handleStartPlaylist}
-                    className="bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors"
-                  >
-                    ▶️ Iniciar Playlist
-                  </button>
-                )}
-              </div>
-            </div>
-            <iframe 
-              data-testid="embed-iframe" 
-              style={{borderRadius: '0 0 12px 12px'}} 
-              src="https://open.spotify.com/embed/playlist/5f3kszyKEEZj4YhukoEEus?utm_source=generator" 
-              width="100%" 
-              height="352" 
-              frameBorder="0" 
-              allowFullScreen="" 
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
-              loading="lazy"
-            ></iframe>
-          </div>
-        )}
-        
-        <div className="font-semibold text-lg leading-relaxed text-white whitespace-pre-line break-words w-full max-w-3xl" style={{wordBreak: 'break-word'}}>{secretMessage}</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4 p-6 h-fit w-full z-10 rounded-2xl bg-slate-800/80 border-2 border-dashed border-pink-400 text-center">
-      <LockIcon className="w-10 h-10 mx-auto text-pink-400"/>
-      <h3 className="font-bold text-white text-xl">Secret Love</h3>
-      <p className="text-slate-300">Esta área contém uma surpresa especial e é protegida por senha.</p>
-      <div className="flex flex-col sm:flex-row gap-2 justify-center">
-        <input 
-          type="password" 
-          value={passwordAttempt}
-          onChange={(e) => setPasswordAttempt(e.target.value)}
-          className="bg-slate-700 border border-slate-600 rounded-lg p-2 text-white text-center focus:ring-2 focus:ring-pink-500 outline-none"
-          placeholder="Digite a senha"
-        />
-        <button onClick={handleUnlock} className="bg-pink-500 hover:bg-pink-600 text-white font-bold py-2 px-4 rounded-lg">
-          Desbloquear
-        </button>
-      </div>
-      {error && <p className="text-red-400 mt-2">{error}</p>}
-    </div>
-  );
-}
-
-function MemoryPage({ memory, onExit, isCreator, onEditMemory, onDeleteMemory }) {
+const MemoryPage = React.memo(({ memory, onExit, isCreator, onEditMemory, onDeleteMemory }) => {
   const { title, message, musicUrl, musicTitle, musicArtist, coupleNames, startDate, photos, secretLoveEnabled, secretPassword, secretVideoUrl, secretMessage, secretVideo } = memory;
+  
+  // Valores computados
   const coverArt = photos && photos.length > 0 ? photos[0] : null;
   const embedUrl = getEmbedUrl(musicUrl);
+  
+  // Estados otimizados
+  const [isPlayerVisible, setIsPlayerVisible] = useState(true);
+  const [playerPosition, setPlayerPosition] = useState({ x: 'right', y: 'bottom' });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const playerRef = useRef(null);
+
+
+
+  // Sincronizar com o YouTube
+  const handleMessage = (event) => {
+    if (event.origin !== 'https://www.youtube.com') return;
+    
+    try {
+      const data = JSON.parse(event.data);
+      
+      if (data.event === 'onStateChange') {
+        setIsPlaying(data.info === 1);
+        if (data.info === 0) {
+          setCurrentTime(0);
+        }
+      } else if (data.event === 'onReady') {
+        const iframe = document.querySelector('iframe[src*="youtube"]');
+        if (iframe) {
+          iframe.contentWindow.postMessage('{"event":"command","func":"getDuration","args":""}', '*');
+        }
+      } else if (data.event === 'infoDelivery') {
+        if (data.info && data.info.duration) {
+          setDuration(data.info.duration);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao processar mensagem do YouTube:', error);
+    }
+  };
+
+  useEffect(() => {
+    const timeInterval = setInterval(() => {
+      if (isPlaying && currentTime < duration) {
+        setCurrentTime(prev => Math.min(prev + 1, duration));
+      }
+    }, 1000);
+
+    window.addEventListener('message', handleMessage);
+    
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      clearInterval(timeInterval);
+    };
+  }, [isPlaying, currentTime, duration]);
 
   return (
     <div className="w-full h-screen overflow-y-auto" style={{
@@ -646,18 +871,36 @@ function MemoryPage({ memory, onExit, isCreator, onEditMemory, onDeleteMemory })
       <div className="flex flex-col w-full h-full gap-5 px-6">
         {/* Top Bar */}
         <div className="flex w-full items-center h-fit pt-4 justify-between text-white">
-          <button onClick={onExit}><ChevronDownIcon className="w-7 h-7" /></button>
+          <button onClick={onExit} className="flex items-center gap-2 hover:bg-white/10 p-2 rounded-lg transition-colors">
+            <ChevronDownIcon className="w-7 h-7" />
+            <span className="text-sm">Voltar</span>
+          </button>
           <span className="font-semibold">{title}</span>
-          <button><EllipsisIcon className="w-7 h-7" /></button>
+          <div className="flex items-center gap-2">
+            <button className="hover:bg-white/10 p-2 rounded-lg transition-colors">
+              <EllipsisIcon className="w-7 h-7" />
+            </button>
+          </div>
         </div>
 
         {/* Player */}
         <div className="flex w-full flex-col flex-grow gap-4">
           <div className="flex w-full justify-center items-center px-9">
             {coverArt ? (
-              <img src={coverArt} alt="Capa da memória" className="w-full max-w-sm aspect-square object-cover rounded-lg shadow-2xl" />
+              <img 
+                src={coverArt} 
+                alt="Capa da memória" 
+                className="w-full max-w-sm aspect-square object-cover rounded-lg shadow-2xl transform hover:scale-105 transition-all duration-500 animate-fade-in" 
+                style={{
+                  animation: 'fadeIn 1s ease-out, float 3s ease-in-out infinite'
+                }}
+                onError={(e) => {
+                  console.warn('Erro ao carregar capa da memória:', coverArt);
+                  e.target.style.display = 'none';
+                }}
+              />
             ) : (
-              <div className="w-full max-w-sm aspect-square bg-slate-700 rounded-lg flex flex-col items-center justify-center text-slate-400">
+              <div className="w-full max-w-sm aspect-square bg-slate-700 rounded-lg flex flex-col items-center justify-center text-slate-400 animate-pulse">
                 <CameraIcon className="w-12 h-12" />
                 <p className="mt-2">Nenhuma foto adicionada</p>
               </div>
@@ -665,58 +908,193 @@ function MemoryPage({ memory, onExit, isCreator, onEditMemory, onDeleteMemory })
           </div>
 
           {/* Título e Artista */}
-          <div className="flex flex-col w-full h-fit gap-2">
+          <div className="flex flex-col w-full h-fit gap-2 animate-fade-in-up">
             <div className="flex w-full justify-between items-center h-fit">
               <div className="flex flex-col w-[80%] overflow-hidden">
-                <h3 className="text-white font-extrabold text-2xl scrolling-text-container">
+                <h3 className="text-white font-extrabold text-2xl scrolling-text-container animate-heartbeat">
                   <span className="scrolling-text">{musicTitle}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
                 </h3>
-                <span className="text-slate-300 font-light">{musicArtist}</span>
+                <span className="text-slate-300 font-light animate-fade-in" style={{ animationDelay: '0.5s' }}>{musicArtist}</span>
               </div>
             </div>
-            {/* Barra de Progresso (Apenas Visual) */}
-            <div className="flex w-full h-1.5 rounded-lg bg-white/25 relative items-center">
-              <div className="absolute left-0 top-0 bg-white rounded-l-lg h-full" style={{ width: '30%' }}></div>
-              <div className="absolute h-3 w-3 rounded-full bg-white z-10" style={{ left: '30%', transform: 'translateX(-50%)' }}></div>
+            {/* Barra de Progresso (Funcional) */}
+            <div 
+              className="flex w-full h-1.5 rounded-lg bg-white/25 relative items-center cursor-pointer"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const percentage = clickX / rect.width;
+                const newTime = percentage * duration;
+                
+                const iframe = document.querySelector('iframe[src*="youtube"]');
+                if (iframe) {
+                  iframe.contentWindow.postMessage(`{"event":"command","func":"seekTo","args":[${newTime}]}`, '*');
+                }
+              }}
+            >
+              <div 
+                className="absolute left-0 top-0 bg-white rounded-l-lg h-full transition-all duration-100" 
+                style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+              ></div>
+              <div 
+                className="absolute h-3 w-3 rounded-full bg-white z-10 transition-all duration-100" 
+                style={{ 
+                  left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%`, 
+                  transform: 'translateX(-50%)' 
+                }}
+              ></div>
             </div>
             <div className="flex w-full h-fit justify-between text-xs text-slate-300">
-              <p>0:58</p>
-              <p>2:59</p>
+              <p>{formatTime(currentTime)}</p>
+              <p>{formatTime(duration)}</p>
             </div>
           </div>
-          {/* Controles do Player (Apenas Visual) */}
-          <div className="flex justify-between items-center h-fit text-white">
-            <ShuffleIcon className="w-6 h-6 sm:w-7 sm:h-7 text-emerald-400" />
+          {/* Controles do Player (Funcional) */}
+          <div className="flex justify-between items-center h-fit text-white animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
+            <ShuffleIcon className="w-6 h-6 sm:w-7 sm:h-7 text-emerald-400 cursor-pointer hover:scale-110 transition-transform animate-glow" />
             <div className="flex flex-row h-fit items-center justify-center gap-6 sm:gap-8">
-              <SkipBackIcon className="w-7 h-7 sm:w-8 sm:h-8"/>
-              <div className="flex p-0 items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white text-black">
-                <PlayIcon className="w-8 h-8 sm:w-10 sm:h-10" />
+              <SkipBackIcon 
+                className="w-7 h-7 sm:w-8 sm:h-8 cursor-pointer hover:scale-110 transition-transform"
+                onClick={() => {
+                  const iframe = document.querySelector('iframe[src*="youtube"]');
+                  if (iframe) {
+                    iframe.contentWindow.postMessage('{"event":"command","func":"seekTo","args":[Math.max(0, currentTime - 10)]}', '*');
+                  }
+                }}
+              />
+              <div 
+                className="flex p-0 items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white text-black cursor-pointer hover:scale-105 transition-transform animate-heartbeat"
+                onClick={() => {
+                  const iframe = document.querySelector('iframe[src*="youtube"]');
+                  if (iframe) {
+                    if (isPlaying) {
+                      iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                      setIsPlaying(false);
+                    } else {
+                      iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                      setIsPlaying(true);
+                    }
+                  }
+                }}
+              >
+                {isPlaying ? (
+                  <svg className="w-8 h-8 sm:w-10 sm:h-10" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"></rect>
+                    <rect x="14" y="4" width="4" height="16"></rect>
+                  </svg>
+                ) : (
+                  <PlayIcon className="w-8 h-8 sm:w-10 sm:h-10" />
+                )}
               </div>
-              <SkipForwardIcon className="w-7 h-7 sm:w-8 sm:h-8"/>
+              <SkipForwardIcon 
+                className="w-7 h-7 sm:w-8 sm:h-8 cursor-pointer hover:scale-110 transition-transform"
+                onClick={() => {
+                  const iframe = document.querySelector('iframe[src*="youtube"]');
+                  if (iframe) {
+                    iframe.contentWindow.postMessage('{"event":"command","func":"seekTo","args":[Math.min(duration, currentTime + 10)]}', '*');
+                  }
+                }}
+              />
             </div>
-            <RepeatIcon className="w-6 h-6 sm:w-7 sm:h-7"/>
+            <RepeatIcon className="w-6 h-6 sm:w-7 sm:h-7 cursor-pointer hover:scale-110 transition-transform animate-glow" />
           </div>
           {/* Player de Música Embutido (Funcional) */}
-          {embedUrl && (
-            <div className="mt-4">
-              <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%' }}>
+          {embedUrl && isPlayerVisible && (
+            <div 
+              ref={playerRef}
+              className="fixed z-30 cursor-move"
+              style={{ 
+                width: '280px', 
+                height: '157px',
+                bottom: playerPosition.y === 'bottom' ? '16px' : 'auto',
+                top: playerPosition.y === 'top' ? '16px' : 'auto',
+                right: playerPosition.x === 'right' ? '16px' : 'auto',
+                left: playerPosition.x === 'left' ? '16px' : 'auto',
+                transform: isDragging ? 'scale(1.05)' : 'scale(1)',
+                transition: isDragging ? 'none' : 'all 0.2s ease'
+              }}
+              onMouseDown={(e) => {
+                if (e.target.tagName === 'IFRAME') return;
+                setIsDragging(true);
+                const rect = e.currentTarget.getBoundingClientRect();
+                setDragOffset({
+                  x: e.clientX - rect.left,
+                  y: e.clientY - rect.top
+                });
+              }}
+              onMouseMove={(e) => {
+                if (!isDragging) return;
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                const newX = e.clientX - dragOffset.x;
+                const newY = e.clientY - dragOffset.y;
+                
+                // Determinar posição baseada na localização
+                const windowWidth = window.innerWidth;
+                const windowHeight = window.innerHeight;
+                
+                if (newX < windowWidth / 2) {
+                  setPlayerPosition(prev => ({ ...prev, x: 'left' }));
+                } else {
+                  setPlayerPosition(prev => ({ ...prev, x: 'right' }));
+                }
+                
+                if (newY < windowHeight / 2) {
+                  setPlayerPosition(prev => ({ ...prev, y: 'top' }));
+                } else {
+                  setPlayerPosition(prev => ({ ...prev, y: 'bottom' }));
+                }
+              }}
+              onMouseUp={() => {
+                setIsDragging(false);
+              }}
+              onMouseLeave={() => {
+                setIsDragging(false);
+              }}
+            >
+              <div className="relative w-full h-full">
                 <iframe
                   src={embedUrl}
                   style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
                     width: '100%',
                     height: '100%',
                     border: 0,
-                    borderRadius: '12px'
+                    borderRadius: '12px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                    pointerEvents: isDragging ? 'none' : 'auto'
                   }}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                   title="Embedded Music Player"
+                  onLoad={() => {
+                    // Configurar comunicação com iframe do YouTube
+                    const iframe = document.querySelector('iframe[src*="youtube"]');
+                    if (iframe) {
+                      iframe.contentWindow.postMessage('{"event":"listening"}', '*');
+                    }
+                  }}
                 ></iframe>
+                {/* Botão para minimizar */}
+                <button 
+                  onClick={() => setIsPlayerVisible(false)}
+                  className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold transition-colors z-10"
+                  title="Minimizar player"
+                >
+                  ×
+                </button>
               </div>
             </div>
+          )}
+          
+          {/* Botão para restaurar player quando minimizado */}
+          {embedUrl && !isPlayerVisible && (
+            <button 
+              onClick={() => setIsPlayerVisible(true)}
+              className="fixed bottom-4 right-4 z-30 bg-red-500 hover:bg-red-600 text-white rounded-full w-12 h-12 flex items-center justify-center text-lg font-bold transition-colors shadow-lg"
+              title="Restaurar player"
+            >
+              ▶️
+            </button>
           )}
         </div>
 
@@ -756,7 +1134,11 @@ function MemoryPage({ memory, onExit, isCreator, onEditMemory, onDeleteMemory })
         )}
         {/* Imagem Final */}
         <div className="flex w-full h-fit items-center justify-center mb-6">
-          <img alt="wrapped-banner" className="w-full h-auto rounded-2xl" src="https://placehold.co/800x400/010101/FFF?text=Para%20a%20melhor%20coisa%20que%20me%20aconteceu%20s2" />
+          <div className="w-full h-48 bg-gradient-to-br from-pink-500 via-red-500 to-purple-600 rounded-2xl flex items-center justify-center text-white text-center p-8">
+            <div className="text-2xl font-bold">
+              Para a melhor coisa que me aconteceu ❤️
+            </div>
+          </div>
         </div>
         {isCreator && (
           <div className="flex justify-end gap-2 mt-4">
@@ -767,7 +1149,7 @@ function MemoryPage({ memory, onExit, isCreator, onEditMemory, onDeleteMemory })
       </div>
     </div>
   );
-}
+});
 
 export default function App() {
   // Verificar atualizações na inicialização
@@ -837,7 +1219,8 @@ export default function App() {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (e) {
+    } catch (error) {
+      console.error('Erro ao fazer login com Google:', error);
       alert('Erro ao fazer login com Google.');
     }
   };
@@ -1058,38 +1441,143 @@ export default function App() {
     // Visitante não autenticado
     if (visitorStep === 'ask') {
       return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
-          <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md flex flex-col gap-4">
-            <h2 className="text-2xl font-bold mb-2">Quem está acessando?</h2>
-            <form onSubmit={handleVisitorSubmit} className="flex flex-col gap-3">
-              <input type="text" placeholder="Nome" value={visitorName} onChange={e => setVisitorName(e.target.value)} className="bg-slate-700 border border-slate-600 rounded-lg p-3 text-white" />
-              <input type="text" placeholder="Sobrenome" value={visitorSurname} onChange={e => setVisitorSurname(e.target.value)} className="bg-slate-700 border border-slate-600 rounded-lg p-3 text-white" />
-              <button type="submit" className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg">Acessar</button>
-            </form>
-            <div className="mt-4 text-center text-slate-400 text-sm">Ou</div>
-            <button onClick={handleGoogleLogin} className="bg-white text-slate-900 font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2">
-              <svg className="w-5 h-5" viewBox="0 0 48 48"><g><path fill="#4285F4" d="M24 9.5c3.54 0 6.7 1.22 9.19 3.23l6.85-6.85C36.68 2.69 30.77 0 24 0 14.82 0 6.71 5.13 2.69 12.56l7.98 6.2C12.13 13.09 17.62 9.5 24 9.5z"/><path fill="#34A853" d="M46.1 24.55c0-1.64-.15-3.22-.42-4.74H24v9.01h12.42c-.54 2.9-2.18 5.36-4.65 7.04l7.19 5.59C43.99 37.13 46.1 31.3 46.1 24.55z"/><path fill="#FBBC05" d="M10.67 28.13a14.5 14.5 0 0 1 0-8.26l-7.98-6.2A23.94 23.94 0 0 0 0 24c0 3.77.9 7.34 2.69 10.56l7.98-6.43z"/><path fill="#EA4335" d="M24 48c6.48 0 11.92-2.14 15.89-5.82l-7.19-5.59c-2.01 1.35-4.6 2.15-8.7 2.15-6.38 0-11.87-3.59-14.33-8.79l-7.98 6.43C6.71 42.87 14.82 48 24 48z"/></g></svg>
-              Entrar com Google
+        <main className="w-full h-screen bg-slate-900">
+          {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+          <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+            <span className="text-white text-sm">Visitante</span>
+            <button 
+              onClick={() => {
+                setVisitorStep('ask');
+                setVisitorMsg('');
+                setPage('home');
+                setCurrentMemoryId(null);
+              }} 
+              className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+              title="Voltar ao início"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+              </svg>
+              Início
             </button>
           </div>
-        </div>
+          <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
+            <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md flex flex-col gap-4">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Quem está acessando?</h2>
+                <button 
+                  onClick={() => {
+                    setVisitorName('');
+                    setVisitorSurname('');
+                    setVisitorMsg('');
+                    setPage('home');
+                    setCurrentMemoryId(null);
+                  }}
+                  className="text-slate-400 hover:text-white transition-colors"
+                  title="Limpar e voltar"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <form onSubmit={handleVisitorSubmit} className="flex flex-col gap-3">
+                <input type="text" placeholder="Nome" value={visitorName} onChange={e => setVisitorName(e.target.value)} className="bg-slate-700 border border-slate-600 rounded-lg p-3 text-white" />
+                <input type="text" placeholder="Sobrenome" value={visitorSurname} onChange={e => setVisitorSurname(e.target.value)} className="bg-slate-700 border border-slate-600 rounded-lg p-3 text-white" />
+                <button type="submit" className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg">Acessar</button>
+              </form>
+              <div className="mt-4 text-center text-slate-400 text-sm">Ou</div>
+              <button onClick={handleGoogleLogin} className="bg-white text-slate-900 font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2">
+                <svg className="w-5 h-5" viewBox="0 0 48 48"><g><path fill="#4285F4" d="M24 9.5c3.54 0 6.7 1.22 9.19 3.23l6.85-6.85C36.68 2.69 30.77 0 24 0 14.82 0 6.71 5.13 2.69 12.56l7.98 6.2C12.13 13.09 17.62 9.5 24 9.5z"/><path fill="#34A853" d="M46.1 24.55c0-1.64-.15-3.22-.42-4.74H24v9.01h12.42c-.54 2.9-2.18 5.36-4.65 7.04l7.19 5.59C43.99 37.13 46.1 31.3 46.1 24.55z"/><path fill="#FBBC05" d="M10.67 28.13a14.5 14.5 0 0 1 0-8.26l-7.98-6.2A23.94 23.94 0 0 0 0 24c0 3.77.9 7.34 2.69 10.56l7.98-6.43z"/><path fill="#EA4335" d="M24 48c6.48 0 11.92-2.14 15.89-5.82l-7.19-5.59c-2.01 1.35-4.6 2.15-8.7 2.15-6.38 0-11.87-3.59-14.33-8.79l-7.98 6.43C6.71 42.87 14.82 48 24 48z"/></g></svg>
+                Entrar com Google
+              </button>
+            </div>
+          </div>
+        </main>
       );
     } else if (visitorStep === 'showMsg') {
       return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
-          <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md flex flex-col gap-4 text-center">
-            <span className="text-2xl font-bold">{visitorMsg}</span>
+        <main className="w-full h-screen bg-slate-900">
+          {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+          <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+            <span className="text-white text-sm">Visitante</span>
+            <button 
+              onClick={() => {
+                setVisitorStep('ask');
+                setVisitorMsg('');
+                setPage('home');
+                setCurrentMemoryId(null);
+              }} 
+              className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+              title="Voltar ao início"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+              </svg>
+              Início
+            </button>
           </div>
-        </div>
+          <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
+            <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md flex flex-col gap-4 text-center">
+              <span className="text-2xl font-bold">{visitorMsg}</span>
+            </div>
+          </div>
+        </main>
       );
     } else if (visitorStep === 'showMemory') {
       // Mostra a cápsula mais recente (memória)
       const memoryIds = Object.keys(memories);
       const lastMemory = memoryIds.length > 0 ? memories[memoryIds[memoryIds.length - 1]] : null;
       if (lastMemory) {
-        return <MemoryPage memory={lastMemory} onExit={() => setVisitorStep('ask')} />;
+        return (
+          <main className="w-full h-screen bg-slate-900">
+            {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+              <span className="text-white text-sm">Visitante</span>
+              <button 
+                onClick={() => {
+                  setVisitorStep('ask');
+                  setVisitorMsg('');
+                  setPage('home');
+                  setCurrentMemoryId(null);
+                }} 
+                className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                title="Voltar ao início"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                Início
+              </button>
+            </div>
+            <MemoryPage memory={lastMemory} onExit={() => setVisitorStep('ask')} />
+          </main>
+        );
       } else {
-        return <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white"><span>Nenhuma memória encontrada.</span></div>;
+        return (
+          <main className="w-full h-screen bg-slate-900">
+            {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+              <span className="text-white text-sm">Visitante</span>
+              <button 
+                onClick={() => {
+                  setVisitorStep('ask');
+                  setVisitorMsg('');
+                  setPage('home');
+                  setCurrentMemoryId(null);
+                }} 
+                className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                title="Voltar ao início"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                Início
+              </button>
+            </div>
+            <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white"><span>Nenhuma memória encontrada.</span></div>
+          </main>
+        );
       }
     }
   }
@@ -1098,41 +1586,160 @@ export default function App() {
   if (!isCreator && user) {
     if (visitorStep === 'showMsg') {
       return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
-          <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md flex flex-col gap-4 text-center">
-            <span className="text-2xl font-bold">{visitorMsg}</span>
+        <main className="w-full h-screen bg-slate-900">
+          {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+          <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+            <span className="text-white text-sm">Olá, {user.displayName || user.email}</span>
+            <button 
+              onClick={handleLogout} 
+              className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+              title="Sair da conta"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Sair
+            </button>
           </div>
-        </div>
+          <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
+            <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md flex flex-col gap-4 text-center">
+              <span className="text-2xl font-bold">{visitorMsg}</span>
+            </div>
+          </div>
+        </main>
       );
     } else if (visitorStep === 'showMemory') {
       // Mostra a cápsula mais recente (memória)
       const memoryIds = Object.keys(memories);
       const lastMemory = memoryIds.length > 0 ? memories[memoryIds[memoryIds.length - 1]] : null;
       if (lastMemory) {
-        return <MemoryPage memory={lastMemory} onExit={() => setVisitorStep('ask')} />;
+        return (
+          <main className="w-full h-screen bg-slate-900">
+            {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+              <span className="text-white text-sm">Olá, {user.displayName || user.email}</span>
+              <button 
+                onClick={handleLogout} 
+                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                title="Sair da conta"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Sair
+              </button>
+            </div>
+            <MemoryPage memory={lastMemory} onExit={() => setVisitorStep('ask')} />
+          </main>
+        );
       } else {
-        return <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white"><span>Nenhuma memória encontrada.</span></div>;
+        return (
+          <main className="w-full h-screen bg-slate-900">
+            {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+              <span className="text-white text-sm">Olá, {user.displayName || user.email}</span>
+              <button 
+                onClick={handleLogout} 
+                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                title="Sair da conta"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Sair
+              </button>
+            </div>
+            <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white"><span>Nenhuma memória encontrada.</span></div>
+          </main>
+        );
       }
     } else {
       // Se não está em nenhum step específico, mostra a memória mais recente diretamente
       const memoryIds = Object.keys(memories);
       const lastMemory = memoryIds.length > 0 ? memories[memoryIds[memoryIds.length - 1]] : null;
       if (lastMemory) {
-        return <MemoryPage memory={lastMemory} onExit={() => setVisitorStep('ask')} />;
+        return (
+          <main className="w-full h-screen bg-slate-900">
+            {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+              <span className="text-white text-sm">Olá, {user.displayName || user.email}</span>
+              <button 
+                onClick={handleLogout} 
+                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                title="Sair da conta"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Sair
+              </button>
+            </div>
+            <MemoryPage memory={lastMemory} onExit={() => setVisitorStep('ask')} />
+          </main>
+        );
       } else {
-        return <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white"><span>Nenhuma memória encontrada.</span></div>;
+        return (
+          <main className="w-full h-screen bg-slate-900">
+            {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+              <span className="text-white text-sm">Olá, {user.displayName || user.email}</span>
+              <button 
+                onClick={handleLogout} 
+                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                title="Sair da conta"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Sair
+              </button>
+            </div>
+            <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white"><span>Nenhuma memória encontrada.</span></div>
+          </main>
+        );
       }
     }
   }
 
   return (
     <main className="w-full h-screen bg-slate-900">
-      {user && (
-        <div className="absolute top-4 right-4 z-50">
-          <span className="mr-2">Olá, {user.displayName || user.email}</span>
-          <button onClick={handleLogout} className="bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-3 rounded">Sair</button>
-        </div>
-      )}
+      {/* Header com informações do usuário e logout - SEMPRE VISÍVEL */}
+      <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+        {user ? (
+          <>
+            <span className="text-white text-sm">Olá, {user.displayName || user.email}</span>
+            <button 
+              onClick={handleLogout} 
+              className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+              title="Sair da conta"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Sair
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="text-white text-sm">Visitante</span>
+            <button 
+              onClick={() => {
+                setVisitorStep('ask');
+                setVisitorMsg('');
+                setPage('home');
+                setCurrentMemoryId(null);
+              }} 
+              className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+              title="Voltar ao início"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+              </svg>
+              Início
+            </button>
+          </>
+        )}
+      </div>
       {renderPage()}
     </main>
   );

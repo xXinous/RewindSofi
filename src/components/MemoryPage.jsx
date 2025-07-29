@@ -105,7 +105,15 @@ export default function MemoryPage({ memory, onExit }) {
         <div className="flex w-full flex-col flex-grow gap-4">
           <div className="flex w-full justify-center items-center px-9">
             {coverArt ? (
-              <img src={coverArt} alt="Capa da memória" className="w-full max-w-sm aspect-square object-cover rounded-lg shadow-2xl" />
+              <img 
+                src={coverArt} 
+                alt="Capa da memória" 
+                className="w-full max-w-sm aspect-square object-cover rounded-lg shadow-2xl" 
+                onError={(e) => {
+                  console.warn('Erro ao carregar capa da memória:', coverArt);
+                  e.target.style.display = 'none';
+                }}
+              />
             ) : (
               <div className="w-full max-w-sm aspect-square bg-slate-700 rounded-lg flex flex-col items-center justify-center text-slate-400">
                 <CameraIcon className="w-12 h-12" />
@@ -193,6 +201,10 @@ export default function MemoryPage({ memory, onExit }) {
                 src={photoUrl} 
                 alt={`Foto da memória ${index + 2}`} 
                 className="w-full max-w-3xl h-auto rounded-2xl shadow-lg"
+                onError={(e) => {
+                  console.warn('Erro ao carregar imagem da memória:', photoUrl);
+                  e.target.style.display = 'none';
+                }}
               />
             ))}
           </div>
@@ -200,7 +212,11 @@ export default function MemoryPage({ memory, onExit }) {
 
         {/* Imagem Final */}
          <div className="flex w-full h-fit items-center justify-center mb-6">
-          <img alt="wrapped-banner" className="w-full h-auto rounded-2xl" src="https://placehold.co/800x400/010101/FFF?text=TimeCapsule" />
+          <div className="w-full h-48 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 rounded-2xl flex items-center justify-center text-white text-center p-8">
+            <div className="text-2xl font-bold">
+              TimeCapsule 💝
+            </div>
+          </div>
         </div>
       </div>
     </div>

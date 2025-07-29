@@ -78,6 +78,10 @@ export default function PhotoGallery({
                 src={photo.url || ''} 
                 alt="Prévia" 
                 className="w-24 h-24 object-cover rounded mb-2 bg-slate-900 hover:scale-105 transition-transform duration-300" 
+                onError={(e) => {
+                  console.warn('Erro ao carregar imagem:', photo.url);
+                  e.target.style.display = 'none';
+                }}
               />
               <div className="text-xs text-slate-200 truncate w-full text-center font-medium">{photo.name}</div>
               <div className="text-xs text-slate-400">{(photo.file?.size/1024/1024).toFixed(2)}MB</div>
@@ -144,6 +148,10 @@ export default function PhotoGallery({
                   src={photo.url} 
                   alt={photo.name} 
                   className="w-full h-full object-cover rounded" 
+                  onError={(e) => {
+                    console.warn('Erro ao carregar imagem do Storage:', photo.url);
+                    e.target.style.display = 'none';
+                  }}
                 />
                 {photo.selected && (
                   <div className="absolute top-1 right-1 bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs animate-bounce-in">
