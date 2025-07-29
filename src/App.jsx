@@ -565,9 +565,10 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
   // Função utilitária para sanitizar nome de arquivo
   function sanitizeFileName(name) {
     return name
-      .normalize('NFD').replace(/[ -]/g, '') // remove acentos
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
       .replace(/[^a-zA-Z0-9.\-_]/g, '_') // só letras, números, ponto, traço, underline
-      .replace(/_+/g, '_');
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, ''); // remove underscores no início e fim
   }
   function getTimestampName(prefix, originalName) {
     const now = new Date();
@@ -577,8 +578,9 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
     const hh = String(now.getHours()).padStart(2, '0');
     const min = String(now.getMinutes()).padStart(2, '0');
     const ss = String(now.getSeconds()).padStart(2, '0');
+    const ms = String(now.getMilliseconds()).padStart(3, '0');
     const sanitized = sanitizeFileName(originalName);
-    return `${prefix}_${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}_${sanitized}`;
+    return `${prefix}_${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}-${ms}_${sanitized}`;
   }
 
   // Upload em lote de fotos
