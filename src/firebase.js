@@ -7,7 +7,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyCkVr1LP1Gz8dKlX8yFVRwUMReBH-C9v2A",
   authDomain: "warpedsofi.firebaseapp.com",
   projectId: "warpedsofi",
-  storageBucket: "warpedsofi.appspot.com",
+  storageBucket: "warpedsofi.firebasestorage.app",
   messagingSenderId: "459231357069",
   appId: "1:459231357069:web:91795694bbd00cd2345ac4"
 };

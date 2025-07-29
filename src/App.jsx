@@ -586,47 +586,42 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
   // Upload em lote de fotos
   const handleUploadPhotos = async () => {
     setUploadError('');
-    const newPhotos = await Promise.all(photos.map(async (p, i) => {
-      if (p.uploaded) return p;
-      const fileName = getTimestampName('foto', p.name);
-      const storageRef = ref(storage, `memories/photos/${fileName}`);
-      const uploadTask = uploadBytesResumable(storageRef, p.file);
-      return await new Promise((resolve, reject) => {
-        uploadTask.on('state_changed',
-          (snapshot) => {
-            setPhotos(prev => prev.map((ph, idx) => idx === i ? { ...ph, progress: Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) } : ph));
-          },
-          (error) => { setUploadError('Erro ao enviar fotos.'); reject(error); },
-          async () => {
-            const url = await getDownloadURL(storageRef);
-            resolve({ ...p, url, uploaded: true, progress: 100, name: fileName });
-          }
-        );
-      });
-    }));
-    setPhotos(newPhotos);
+    try {
+      const newPhotos = await Promise.all(photos.map(async (p, i) => {
+        if (p.uploaded) return p;
+        const fileName = getTimestampName('foto', p.name);
+        const storageRef = ref(storage, `memories/photos/${fileName}`);
+        
+        // Usar uploadBytes em vez de uploadBytesResumable para evitar problemas de CORS
+        const snapshot = await uploadBytes(storageRef, p.file);
+        const url = await getDownloadURL(snapshot.ref);
+        
+        return { ...p, url, uploaded: true, progress: 100, name: fileName };
+      }));
+      setPhotos(newPhotos);
+    } catch (error) {
+      console.error('Erro no upload:', error);
+      setUploadError(`Erro ao enviar fotos: ${error.message}`);
+    }
   };
 
   // Upload do vídeo
   const handleUploadVideo = async () => {
     if (!video || video.uploaded) return;
     setUploadError('');
-    const fileName = getTimestampName('video', video.name);
-    const storageRef = ref(storage, `memories/secret_videos/${fileName}`);
-    const uploadTask = uploadBytesResumable(storageRef, video.file);
-    await new Promise((resolve, reject) => {
-      uploadTask.on('state_changed',
-        (snapshot) => {
-          setVideo(v => ({ ...v, progress: Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) }));
-        },
-        (error) => { setUploadError('Erro ao enviar vídeo.'); reject(error); },
-        async () => {
-          const url = await getDownloadURL(storageRef);
-          setVideo(v => ({ ...v, url, uploaded: true, progress: 100, name: fileName }));
-          resolve();
-        }
-      );
-    });
+    try {
+      const fileName = getTimestampName('video', video.name);
+      const storageRef = ref(storage, `memories/secret_videos/${fileName}`);
+      
+      // Usar uploadBytes em vez de uploadBytesResumable para evitar problemas de CORS
+      const snapshot = await uploadBytes(storageRef, video.file);
+      const url = await getDownloadURL(snapshot.ref);
+      
+      setVideo(v => ({ ...v, url, uploaded: true, progress: 100, name: fileName }));
+    } catch (error) {
+      console.error('Erro no upload do vídeo:', error);
+      setUploadError(`Erro ao enviar vídeo: ${error.message}`);
+    }
   };
 
   // Verifica se há upload pendente

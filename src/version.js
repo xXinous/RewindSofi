@@ -1,7 +1,7 @@
 // Configuração de versão da aplicação
 // Este arquivo é atualizado automaticamente durante o build
-export const APP_VERSION = '0.1.0';
-export const BUILD_TIMESTAMP = 1753320229938;
+export const APP_VERSION = '0.2.1';
+export const BUILD_TIMESTAMP = 1753759267338;
 
 // Função para verificar se há uma nova versão disponível
 export const checkForUpdates = () => {
