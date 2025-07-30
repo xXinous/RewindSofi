@@ -54,17 +54,20 @@ const getEmbedUrl = (input) => {
     // Verificar se é um código de incorporação do YouTube
     let embedMatch = input.match(/<iframe[^>]*src="([^"]*youtube\.com\/embed\/[^"]*)"[^>]*>/i);
     if (embedMatch && embedMatch[1]) {
-      // Adicionar enablejsapi=1 se não estiver presente
+      // Adicionar enablejsapi=1, autoplay=1 e mute=1 se não estiverem presentes
       let embedUrl = embedMatch[1];
       if (!embedUrl.includes('enablejsapi=1')) {
         embedUrl += (embedUrl.includes('?') ? '&' : '?') + 'enablejsapi=1';
+      }
+      if (!embedUrl.includes('autoplay=1')) {
+        embedUrl += (embedUrl.includes('?') ? '&' : '?') + 'autoplay=1';
       }
       return embedUrl;
     }
     
     // Verificar se é uma URL direta do YouTube
     let youtubeMatch = input.match(/(?:https?:\/\/)?(?:www\.)?(?:m\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=|embed\/|v\/|)([\w-]{11})(?:\S+)?/);
-    if (youtubeMatch && youtubeMatch[1]) return `https://www.youtube.com/embed/${youtubeMatch[1]}?enablejsapi=1`;
+    if (youtubeMatch && youtubeMatch[1]) return `https://www.youtube.com/embed/${youtubeMatch[1]}?enablejsapi=1&autoplay=1`;
     
     // Verificar se é uma URL do Spotify
     let spotifyMatch = input.match(/(?:https?:\/\/)?open\.spotify\.com\/(track|album|playlist)\/([a-zA-Z0-9]+)/);
@@ -201,18 +204,94 @@ const TimeTogether = React.memo(({ startDate }) => {
   );
 });
 
-const SecretLoveSection = React.memo(({ password, videoUrl, secretMessage }) => {
+const SuspenseTimer = React.memo(() => {
+  const timeUnits = [
+    { label: 'ano', color: 'from-emerald-500 to-emerald-600', textColor: 'text-emerald-100' },
+    { label: 'mês', color: 'from-cyan-500 to-cyan-600', textColor: 'text-cyan-100' },
+    { label: 'semana', color: 'from-blue-500 to-blue-600', textColor: 'text-blue-100' },
+    { label: 'dia', color: 'from-purple-500 to-purple-600', textColor: 'text-purple-100' },
+    { label: 'hora', color: 'from-pink-500 to-pink-600', textColor: 'text-pink-100' },
+    { label: 'min', color: 'from-orange-500 to-orange-600', textColor: 'text-orange-100' },
+    { label: 'seg', color: 'from-red-500 to-red-600', textColor: 'text-red-100' }
+  ];
+
+  return (
+    <div className="mt-6">
+      <div className="text-center mb-4">
+        <h3 className="text-lg font-semibold text-white mb-2">⏰ Cronômetro do Suspense</h3>
+        <p className="text-sm text-slate-300">Aguardando o momento especial...</p>
+      </div>
+      <div className="flex flex-wrap gap-3">
+        {timeUnits.map((unit, index) => (
+          <div key={index} className={`bg-gradient-to-br ${unit.color} rounded-xl p-3 text-center min-w-[80px] transform hover:scale-105 transition-all duration-300 shadow-lg animate-pulse`}>
+            <div className="text-2xl font-bold text-white">?</div>
+            <div className={`text-xs ${unit.textColor}`}>
+              {unit.label}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+const SecretLoveSection = React.memo(({ videoUrl, secretMessage }) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
-  const [passwordAttempt, setPasswordAttempt] = useState('');
+  const [currentRiddle, setCurrentRiddle] = useState(0);
+  const [answerAttempt, setAnswerAttempt] = useState('');
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [videoEnded, setVideoEnded] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [playlistStarted, setPlaylistStarted] = useState(false);
   const [showAnimation, setShowAnimation] = useState(false);
   const [animationStep, setAnimationStep] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   const playlistRef = useRef(null);
   const videoRef = useRef(null);
+
+  // Charadas e respostas
+  const riddles = [
+    {
+      id: 1,
+      question: "Pense no nosso primeiro encontro. Onde o hashi e a conversa fluíram soltos, em um mar de sabores que selou nosso começo. A fachada mostra a entrada.",
+      answer: "maru",
+      successMessage: "Exato. O primeiro de incontáveis momentos perfeitos que viriam."
+    },
+    {
+      id: 2,
+      question: "Do restaurante para o café. O cheiro dos grãos, o aconchego das nossas conversas... e um observador silencioso no balcão. Nem tubarão, nem dinossauro. Aquele animal libera o caminho para a memória seguinte.",
+      answer: "ornitorrinco",
+      successMessage: "Sabia que você não esqueceria do nosso cúmplice de pelúcia."
+    },
+    {
+      id: 3,
+      question: "Depois da velocidade na pista, veio a vontade de parar o tempo e eternizar aquele momento. Mas, para isso, nossa máquina de memórias instantâneas se recusou a funcionar, pois nos faltava um item essencial.",
+      answer: "pilha",
+      successMessage: "Isso! A prova de que nem tudo precisa dar certo pra ser perfeito com você."
+    },
+    {
+      id: 4,
+      question: "A noite prometia uma vista do alto da roda gigante, mas o destino (e a centopeia) nos deixou tontos e com uma larica incontrolável. A salvação veio em fatias, com um formato peculiar.",
+      answer: "quadrada",
+      successMessage: "Nossa especialidade: transformar qualquer imprevisto na melhor memória."
+    },
+    {
+      id: 5,
+      question: "O Enigma Final:\n\nA última palavra não se lê, se decifra. A chave está na numerologia do nosso começo.\nVolte à semente da nossa história: 14/06.\nDa força do dia, retire a força do mês que o abraçou. O que resta desta união te apontará o primeiro dia secreto de Julho.\nO segundo dia secreto é o eco do primeiro; sua imagem dobrada no tempo.\nCom estes dois dias de Julho agora em seu poder, saiba que em cada uma de suas manhãs, uma declaração chegou em fragmentos.",
+      answer: "te amo",
+      successMessage: "Perfeito! Você decifrou o código do nosso amor. Agora prepare-se para a surpresa final..."
+    }
+  ];
+
+  // Frases de incentivo para tentativas erradas
+  const encouragementMessages = [
+    "Ainda não é essa a palavra. Tente mergulhar um pouco mais fundo na lembrança...",
+    "Hmm, não. Pense nos detalhes, você é ótima nisso. Tenho certeza que vai acertar.",
+    "Tente outra vez, meu amor. A resposta está aí, em algum lugar da nossa história.",
+    "Essa palavra não abriu a porta, mas cada tentativa me faz lembrar o quanto amo construir essas memórias com você."
+  ];
 
   // Controlar YouTube quando a seção é desbloqueada
   useEffect(() => {
@@ -228,6 +307,16 @@ const SecretLoveSection = React.memo(({ password, videoUrl, secretMessage }) => 
       }
     }
   }, [isUnlocked]);
+
+  // Pré-carregar vídeo quando desbloqueado
+  useEffect(() => {
+    if (isUnlocked && videoUrl) {
+      const video = videoRef.current;
+      if (video) {
+        video.load();
+      }
+    }
+  }, [isUnlocked, videoUrl]);
 
   // Controlar playlist quando vídeo toca
   useEffect(() => {
@@ -254,32 +343,82 @@ const SecretLoveSection = React.memo(({ password, videoUrl, secretMessage }) => 
     }
   }, [isVideoPlaying, videoEnded, playlistStarted]);
 
-  const handleUnlock = () => {
-    if (passwordAttempt === password) {
-      setShowAnimation(true);
+  const handleAnswer = () => {
+    const currentRiddleData = riddles[currentRiddle];
+    const normalizedAttempt = answerAttempt.toLowerCase().trim();
+    const normalizedAnswer = currentRiddleData.answer.toLowerCase().trim();
+    
+    if (normalizedAttempt === normalizedAnswer) {
+      setSuccessMessage(currentRiddleData.successMessage);
       setError('');
       
-      const animationSteps = [
-        { time: 0, text: "✨ Desbloqueando o amor..." },
-        { time: 2000, text: "💕 Carregando memórias especiais..." },
-        { time: 4000, text: "🌹 Preparando surpresas..." },
-        { time: 6000, text: "💫 Quase lá..." },
-        { time: 8000, text: "💝 Abrindo o coração..." },
-        { time: 10000, text: "💖 Secret Love ativado!" }
-      ];
-      
-      animationSteps.forEach((step, index) => {
+      // Se é a última charada, mostrar animação e carregar conteúdo em segundo plano
+      if (currentRiddle === riddles.length - 1) {
+        setShowAnimation(true);
+        setIsLoading(true);
+        
+        const animationSteps = [
+          { time: 0, text: "✨ Desbloqueando o amor..." },
+          { time: 1500, text: "💕 Carregando memórias especiais..." },
+          { time: 3000, text: "🌹 Preparando surpresas..." },
+          { time: 4500, text: "💫 Quase lá..." },
+          { time: 6000, text: "💝 Abrindo o coração..." },
+          { time: 7500, text: "💖 Secret Love ativado!" }
+        ];
+        
+        // Iniciar animação
+        animationSteps.forEach((step, index) => {
+          setTimeout(() => {
+            setAnimationStep(index);
+          }, step.time);
+        });
+        
+        // Carregar vídeo em segundo plano
+        const preloadVideo = () => {
+          return new Promise((resolve) => {
+            if (videoUrl) {
+              const video = document.createElement('video');
+              video.src = videoUrl;
+              video.preload = 'metadata';
+              
+              video.onloadedmetadata = () => {
+                resolve();
+              };
+              
+              video.onerror = () => {
+                resolve(); // Continuar mesmo se o vídeo falhar
+              };
+              
+              // Timeout de segurança
+              setTimeout(resolve, 3000);
+            } else {
+              resolve();
+            }
+          });
+        };
+        
+        // Carregar recursos e finalizar quando pronto
+        Promise.all([
+          preloadVideo(),
+          new Promise(resolve => setTimeout(resolve, 7500)) // Aguardar toda a animação
+        ]).then(() => {
+          setIsUnlocked(true);
+          setShowAnimation(false);
+          setIsLoading(false);
+        });
+      } else {
+        // Mostrar mensagem de sucesso por 3 segundos e passar para próxima charada
         setTimeout(() => {
-          setAnimationStep(index);
-        }, step.time);
-      });
-      
-      setTimeout(() => {
-        setIsUnlocked(true);
-        setShowAnimation(false);
-      }, 10000);
+          setCurrentRiddle(currentRiddle + 1);
+          setAnswerAttempt('');
+          setSuccessMessage('');
+        }, 3000);
+      }
     } else {
-      setError('Senha incorreta. Tente novamente.');
+      // Mostrar mensagem de incentivo aleatória
+      const randomMessage = encouragementMessages[Math.floor(Math.random() * encouragementMessages.length)];
+      setError(randomMessage);
+      setSuccessMessage('');
     }
   };
 
@@ -350,6 +489,12 @@ const SecretLoveSection = React.memo(({ password, videoUrl, secretMessage }) => 
               style={{ width: `${((animationStep + 1) / animationTexts.length) * 100}%` }}
             ></div>
           </div>
+          
+          {isLoading && (
+            <div className="text-white/70 text-sm mb-4">
+              Carregando recursos em segundo plano...
+            </div>
+          )}
           
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
             {[...Array(20)].map((_, i) => (
@@ -439,20 +584,37 @@ const SecretLoveSection = React.memo(({ password, videoUrl, secretMessage }) => 
     <div className="flex flex-col gap-4 p-6 h-fit w-full z-10 rounded-2xl bg-slate-800/80 border-2 border-dashed border-pink-400 text-center">
       <LockIcon className="w-10 h-10 mx-auto text-pink-400"/>
       <h3 className="font-bold text-white text-xl">Secret Love</h3>
-      <p className="text-slate-300">Esta área contém uma surpresa especial e é protegida por senha.</p>
+      <p className="text-slate-300">Esta área contém uma surpresa especial e é protegida por charadas.</p>
+      
+      <div className="bg-slate-700/50 rounded-lg p-4 mb-4">
+        <div className="flex items-center justify-center gap-2 mb-3">
+          <span className="text-pink-400 font-bold">Charada {currentRiddle + 1} de {riddles.length}</span>
+        </div>
+        <p className="text-white text-sm leading-relaxed whitespace-pre-line mb-4">
+          {riddles[currentRiddle].question}
+        </p>
+      </div>
+      
       <div className="flex flex-col sm:flex-row gap-2 justify-center">
         <input 
-          type="password" 
-          value={passwordAttempt}
-          onChange={(e) => setPasswordAttempt(e.target.value)}
+          type="text" 
+          value={answerAttempt}
+          onChange={(e) => setAnswerAttempt(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && handleAnswer()}
           className="bg-slate-700 border border-slate-600 rounded-lg p-2 text-white text-center focus:ring-2 focus:ring-pink-500 outline-none"
-          placeholder="Digite a senha"
+          placeholder="Digite sua resposta"
         />
-        <button onClick={handleUnlock} className="bg-pink-500 hover:bg-pink-600 text-white font-bold py-2 px-4 rounded-lg">
-          Desbloquear
+        <button onClick={handleAnswer} className="bg-pink-500 hover:bg-pink-600 text-white font-bold py-2 px-4 rounded-lg">
+          Responder
         </button>
       </div>
-      {error && <p className="text-red-400 mt-2">{error}</p>}
+      
+      {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
+      {successMessage && (
+        <div className="mt-2 p-3 bg-green-500/20 border border-green-400/30 rounded-lg">
+          <p className="text-green-400 text-sm">{successMessage}</p>
+        </div>
+      )}
     </div>
   );
 });
@@ -467,7 +629,6 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
   const [coupleNames, setCoupleNames] = useState('');
   const [startDate, setStartDate] = useState('');
   const [secretLoveEnabled, setSecretLoveEnabled] = useState(false);
-  const [secretPassword, setSecretPassword] = useState('');
   const [secretMessage, setSecretMessage] = useState('');
   const [error, setError] = useState('');
   const [uploadError, setUploadError] = useState('');
@@ -489,7 +650,7 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
       setCoupleNames(initialData.coupleNames || '');
       setStartDate(initialData.startDate || '');
       setSecretLoveEnabled(initialData.secretLoveEnabled || false);
-      setSecretPassword(initialData.secretPassword || '');
+
       setSecretMessage(initialData.secretMessage || '');
       // Fotos já existentes
       if (initialData.photos && Array.isArray(initialData.photos)) {
@@ -634,8 +795,8 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
       setError('Todos os campos principais são obrigatórios.');
       return;
     }
-    if (secretLoveEnabled && (!secretPassword || !secretMessage || !video || !video.uploaded)) {
-      setError('Para a seção "Secret Love", a senha, a mensagem secreta e o vídeo são obrigatórios.');
+    if (secretLoveEnabled && (!secretMessage || !video || !video.uploaded)) {
+      setError('Para a seção "Secret Love", a mensagem secreta e o vídeo são obrigatórios.');
       return;
     }
     setError('');
@@ -643,7 +804,7 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
     onCreateMemory({
       title, message, musicUrl, musicTitle, musicArtist, coupleNames, startDate,
       photos: [...photos.filter(p => p.uploaded).map(p => p.url), ...selectedStorageUrls],
-      secretLoveEnabled, secretPassword, secretVideo: video && video.uploaded ? video.url : null, secretMessage
+      secretLoveEnabled, secretVideo: video && video.uploaded ? video.url : null, secretMessage
     });
   };
 
@@ -738,7 +899,7 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
           {secretLoveEnabled && (
             <div className="mt-4 space-y-4 p-4 bg-slate-900/50 rounded-lg">
               <h3 className="text-md font-bold text-pink-300">Conteúdo Secreto</h3>
-              <input type="password" value={secretPassword} onChange={e => setSecretPassword(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-pink-500 outline-none" placeholder="Crie uma senha para esta seção"/>
+
               <textarea
                 value={secretMessage}
                 onChange={e => setSecretMessage(e.target.value)}
@@ -799,7 +960,7 @@ function MemoryForm({ onCreateMemory, onNavigate, initialData, loadingMemory }) 
 }
 
 const MemoryPage = React.memo(({ memory, onExit, isCreator, onEditMemory, onDeleteMemory }) => {
-  const { title, message, musicUrl, musicTitle, musicArtist, coupleNames, startDate, photos, secretLoveEnabled, secretPassword, secretVideoUrl, secretMessage, secretVideo } = memory;
+  const { title, message, musicUrl, musicTitle, musicArtist, coupleNames, startDate, photos, secretLoveEnabled, secretVideoUrl, secretMessage, secretVideo } = memory;
   
   // Valores computados
   const coverArt = photos && photos.length > 0 ? photos[0] : null;
@@ -1104,6 +1265,7 @@ const MemoryPage = React.memo(({ memory, onExit, isCreator, onEditMemory, onDele
                 <span className="font-extralight text-base text-slate-300">Juntos desde {new Date(startDate).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
               </div>
               <TimeTogether startDate={startDate} />
+              <SuspenseTimer />
             </div>
           </div>
         </div>
@@ -1126,7 +1288,7 @@ const MemoryPage = React.memo(({ memory, onExit, isCreator, onEditMemory, onDele
         {/* Seção Secret Love */}
         {secretLoveEnabled && (
           <div className="flex w-full h-fit items-center justify-center mb-4">
-            <SecretLoveSection password={secretPassword} videoUrl={secretVideo || secretVideoUrl} secretMessage={secretMessage} />
+            <SecretLoveSection videoUrl={secretVideo || secretVideoUrl} secretMessage={secretMessage} />
           </div>
         )}
         {/* Imagem Final */}
