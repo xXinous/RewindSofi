@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Regras para a coleção de memórias
+    match /memorias/{document} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.email == "marcelop.smile@gmail.com";
+    }
+    
+    // Regras para a coleção de comentários
+    match /comments/{commentId} {
+      // Qualquer pessoa pode ler comentários não deletados
+      allow read: if resource.data.deleted == false;
+      
+      // Admin pode ler TODOS os comentários (incluindo deletados)
+      allow read: if request.auth != null && 
+        request.auth.token.email == "marcelop.smile@gmail.com";
+      
+      // Usuários logados podem criar comentários
+      allow create: if request.auth != null && 
+        request.auth.token.email != null &&
+        request.resource.data.userEmail == request.auth.token.email &&
+        request.resource.data.userName != null &&
+        request.resource.data.text != null &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.text.size() <= 500 &&
+        request.resource.data.deleted == false &&
+        request.resource.data.memoryId != null;
+      
+      // Apenas o admin pode atualizar ou deletar comentários
+      allow update, delete: if request.auth != null && 
+        request.auth.token.email == "marcelop.smile@gmail.com";
+    }
+  }
+} 

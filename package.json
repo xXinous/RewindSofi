@@ -1,6 +1,6 @@
 {
-  "name": "capsula-tempo-firebase",
-  "version": "0.3.0",
+  "name": "rewind-sofi",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "start": "react-scripts start",

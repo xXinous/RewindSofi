@@ -1,53 +1,56 @@
 # Changelog
 
-## [2024-07-29] - Atualização de Dependências e Acessibilidade
+## [1.2.0] - 2024-12-19
 
-### 🔧 Correções
-- **Resolvido aviso de depreciação**: Removida a propriedade `-ms-high-contrast` que estava sendo descontinuada
-- **Atualização do Tailwind CSS**: Migrado para a versão 4.1.11 com melhor suporte para acessibilidade
-- **Atualização do Autoprefixer**: Atualizado para a versão 10.4.21 com configurações modernas
-- **Atualização do PostCSS**: Atualizado para a versão 8.5.6
-- **Correção do plugin PostCSS**: Instalado `@tailwindcss/postcss` para compatibilidade com Tailwind v4
+### Adicionado
+- **Sistema completo de comentários**
+  - Usuários logados com Google podem deixar comentários
+  - Exibição de nome e foto de perfil do usuário
+  - Data e hora dos comentários
+  - Limite de 500 caracteres por comentário
+  - Contador de caracteres em tempo real
 
-### ✨ Melhorias de Acessibilidade
-- **Novas classes utilitárias**: Adicionadas classes `.focus-visible`, `.sr-only`, `.high-contrast`, `.reduced-motion`
-- **Cores acessíveis**: Implementado sistema de cores com melhor contraste
-- **Suporte a preferências de movimento**: Respeita a configuração `prefers-reduced-motion`
-- **Foco melhorado**: Contornos de foco mais visíveis e acessíveis
+- **Área de administração de comentários**
+  - Visualização de todos os comentários ativos
+  - Sistema de soft delete (comentários excluídos ficam ocultos)
+  - Área separada para comentários excluídos
+  - Funcionalidade de restaurar comentários excluídos
+  - Exclusão permanente de comentários
+  - Interface com tabs para organizar comentários ativos/excluídos
 
-### 🎨 Novas Animações
-- **Animações suaves**: Adicionadas animações `fade-in`, `slide-up`, `scale-in`
-- **Transições otimizadas**: Melhor performance e suporte a dispositivos de baixo poder
-- **Keyframes personalizados**: Animações customizadas para melhor UX
+- **Melhorias na interface**
+  - Botão de login Google para usuários não logados
+  - Mensagem explicativa sobre necessidade de login
+  - Ícones SVG para melhor experiência visual
+  - Loading states durante operações
 
-### 📱 Configurações de Navegador
-- **Browserslist atualizado**: Removido suporte ao IE 11 e adicionado suporte ao Edge
-- **Configurações modernas**: Foco em navegadores modernos com melhor suporte a acessibilidade
+- **Segurança e regras do Firestore**
+  - Regras de segurança para coleção `comments`
+  - Validação de dados no frontend e backend
+  - Controle de acesso baseado em autenticação
+  - Soft delete para preservar histórico
 
-### 🔄 Configurações do Autoprefixer
-- **Flexbox moderno**: Configurado para usar especificação moderna do flexbox
-- **Grid autoplace**: Suporte automático para CSS Grid
-- **Propriedades depreciadas**: Desabilitadas propriedades que causam avisos
+### Técnico
+- Nova coleção `comments` no Firestore
+- Arquivo `firestore.rules` com regras de segurança
+- Componentes React otimizados com `React.memo`
+- Hooks personalizados para gerenciamento de estado
+- Integração completa com Firebase Auth
 
-### 📋 Como Usar as Novas Classes
+## [1.1.0] - 2024-12-18
 
-```css
-/* Para elementos que precisam de foco visível */
-.focus-visible
+### Adicionado
+- Seção "Secret Love" com charadas
+- Upload de vídeos secretos
+- Sistema de animações e transições
+- Cronômetro de tempo juntos
+- Player de música embutido (YouTube/Spotify)
 
-/* Para texto que deve ser lido por leitores de tela mas não visível */
-.sr-only
+## [1.0.0] - 2024-12-17
 
-/* Para melhorar contraste em modo escuro */
-.high-contrast
-
-/* Para respeitar preferências de movimento reduzido */
-.reduced-motion
-```
-
-### 🚀 Benefícios
-- ✅ Eliminados avisos de depreciação no console
-- ✅ Melhor acessibilidade para usuários com deficiências visuais
-- ✅ Performance otimizada para dispositivos móveis
-- ✅ Suporte moderno a navegadores atuais
-- ✅ Código mais limpo e mantível 
+### Adicionado
+- Sistema de criação de memórias
+- Upload de fotos e vídeos
+- Integração com YouTube e Spotify
+- Autenticação Google
+- Interface responsiva com Tailwind CSS 

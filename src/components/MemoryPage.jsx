@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
+import { db } from "../firebase";
 
 // Ícones SVG como componentes
 const PlayIcon = ({ className }) => <svg className={className} viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>;
@@ -27,10 +29,22 @@ const getEmbedUrl = (url) => {
 };
 
 // Componente para calcular tempo junto
-function TimeTogether({ startDate }) {
+function TimeTogether({ startDate, title = "Tempo Juntos" }) {
   const calculateDuration = () => {
+    if (!startDate) {
+      return { years: 0, months: 0, days: 0, hours: 0, minutes: 0, seconds: 0 };
+    }
+    
     const start = new Date(startDate);
     const now = new Date();
+    
+    // Verificar se a data é válida
+    if (isNaN(start.getTime())) {
+      console.error('❌ TimeTogether: Data inválida:', startDate);
+      return { years: 0, months: 0, days: 0, hours: 0, minutes: 0, seconds: 0 };
+    }
+    
+    console.log('🔍 TimeTogether: Calculando duração - startDate:', startDate, 'start:', start, 'now:', now);
     
     let years = now.getFullYear() - start.getFullYear();
     let months = now.getMonth() - start.getMonth();
@@ -51,13 +65,23 @@ function TimeTogether({ startDate }) {
     const minutes = Math.floor((diff / (1000 * 60)) % 60);
     const seconds = Math.floor((diff / 1000) % 60);
 
-    return { years, months, days, hours, minutes, seconds };
+    const result = { years, months, days, hours, minutes, seconds };
+    console.log('🔍 TimeTogether: Resultado do cálculo:', result);
+    
+    return result;
   };
 
   const [duration, setDuration] = useState(calculateDuration());
 
   useEffect(() => {
-    const timer = setInterval(() => setDuration(calculateDuration()), 1000);
+    console.log('🔍 TimeTogether: useEffect - startDate mudou para:', startDate);
+    setDuration(calculateDuration());
+    
+    const timer = setInterval(() => {
+      const newDuration = calculateDuration();
+      setDuration(newDuration);
+    }, 1000);
+    
     return () => clearInterval(timer);
   }, [startDate]);
 
@@ -71,21 +95,129 @@ function TimeTogether({ startDate }) {
   ];
 
   return (
-    <div className="grid gap-4 grid-cols-3">
-      {timeUnits.map(unit => (
-        <div key={unit.label} className="flex flex-col items-center p-4 rounded-xl border-2 border-b-[6px] border-white/20">
-          <span className="text-2xl font-bold mb-1 text-white">{unit.value}</span>
-          <span className="text-sm text-slate-300">{unit.label}</span>
-        </div>
-      ))}
+    <div className="flex flex-col gap-4">
+      <h3 className="text-lg font-semibold text-white text-center">{title}</h3>
+      <div className="grid gap-4 grid-cols-3">
+        {timeUnits.map(unit => (
+          <div key={unit.label} className="flex flex-col items-center p-4 rounded-xl border-2 border-b-[6px] border-white/20">
+            <span className="text-2xl font-bold mb-1 text-white">{unit.value}</span>
+            <span className="text-sm text-slate-300">{unit.label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-export default function MemoryPage({ memory, onExit }) {
-  const { title, message, musicUrl, musicTitle, musicArtist, coupleNames, startDate, photos } = memory;
+export default function MemoryPage({ memory, onExit, isCreator }) {
+  const { title, message, musicUrl, musicTitle, musicArtist, coupleNames, startDate, photos, id } = memory;
   const coverArt = photos && photos.length > 0 ? photos[0] : null;
   const embedUrl = getEmbedUrl(musicUrl);
+  
+  // Estado para o cronômetro de namoro
+  const [datingStartDate, setDatingStartDate] = useState(null);
+  const [showDatingTimer, setShowDatingTimer] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+
+
+  // Carregar data de início do namoro
+  useEffect(() => {
+    const loadDatingStartDate = async () => {
+      if (!id) return;
+      
+      console.log('🔍 MemoryPage: Carregando data de namoro para memória:', id);
+      
+      try {
+        const memoryDoc = await getDoc(doc(db, 'memorias', id));
+        console.log('🔍 MemoryPage: Documento existe:', memoryDoc.exists());
+        
+        if (memoryDoc.exists()) {
+          const data = memoryDoc.data();
+          console.log('🔍 MemoryPage: Dados da memória:', data);
+          console.log('🔍 MemoryPage: datingStartDate:', data.datingStartDate);
+          
+          if (data.datingStartDate) {
+            console.log('✅ MemoryPage: Data de namoro encontrada, ativando cronômetro');
+            setDatingStartDate(data.datingStartDate);
+            setShowDatingTimer(true);
+          } else {
+            console.log('❌ MemoryPage: Nenhuma data de namoro encontrada');
+            setDatingStartDate(null);
+            setShowDatingTimer(false);
+          }
+        } else {
+          console.log('❌ MemoryPage: Documento não existe');
+          setDatingStartDate(null);
+          setShowDatingTimer(false);
+        }
+      } catch (error) {
+        console.error('❌ MemoryPage: Erro ao carregar data de namoro:', error);
+        // Em caso de erro, tentar usar o estado local
+        if (memory.datingStartDate) {
+          console.log('✅ MemoryPage: Usando data de namoro do estado local');
+          setDatingStartDate(memory.datingStartDate);
+          setShowDatingTimer(true);
+        }
+      }
+    };
+
+    loadDatingStartDate();
+  }, [id, memory.datingStartDate]);
+
+  // Verificar se a memória tem datingStartDate no estado local também
+  useEffect(() => {
+    console.log('🔍 MemoryPage: Verificando estado local - memory.datingStartDate:', memory.datingStartDate);
+    console.log('🔍 MemoryPage: showDatingTimer atual:', showDatingTimer);
+    console.log('🔍 MemoryPage: datingStartDate atual:', datingStartDate);
+    
+    if (memory.datingStartDate && !showDatingTimer) {
+      console.log('✅ MemoryPage: Data de namoro encontrada no estado local, ativando cronômetro');
+      setDatingStartDate(memory.datingStartDate);
+      setShowDatingTimer(true);
+    } else if (!memory.datingStartDate && showDatingTimer) {
+      console.log('❌ MemoryPage: Data de namoro removida do estado local, desativando cronômetro');
+      setDatingStartDate(null);
+      setShowDatingTimer(false);
+    }
+  }, [memory.datingStartDate, showDatingTimer]);
+
+  // Função para ativar o cronômetro de namoro
+  const handleSheSaidYes = async () => {
+    if (!isCreator || !id) return;
+    
+    setIsLoading(true);
+    try {
+      const now = new Date();
+      const memoryRef = doc(db, 'memorias', id);
+      
+      console.log('🔍 MemoryPage: Ativando cronômetro de namoro para memória:', id);
+      console.log('🔍 MemoryPage: Data atual:', now.toISOString());
+      
+      await updateDoc(memoryRef, {
+        datingStartDate: now.toISOString()
+      });
+      
+      console.log('✅ MemoryPage: Cronômetro ativado no Firestore');
+      
+      setDatingStartDate(now.toISOString());
+      setShowDatingTimer(true);
+      
+      console.log('✅ MemoryPage: Estado local atualizado');
+      console.log('✅ Cronômetro de namoro ativado!');
+      
+      // Recarregar a página após um breve delay para garantir sincronização
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+      
+    } catch (error) {
+      console.error('❌ Erro ao ativar cronômetro de namoro:', error);
+      alert('Erro ao ativar cronômetro de namoro. Tente novamente.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="w-full h-screen overflow-y-auto" style={{
@@ -179,7 +311,45 @@ export default function MemoryPage({ memory, onExit }) {
                 <span className="font-black text-2xl">{coupleNames}</span>
                 <span className="font-extralight text-base text-slate-300">Juntos desde {new Date(startDate).toLocaleDateString('pt-BR', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
               </div>
-              <TimeTogether startDate={startDate} />
+              <TimeTogether startDate={startDate} title="Tempo Juntos" />
+              
+              {/* Cronômetro de Namoro (visível para todos quando ativado) */}
+              {console.log('🔍 MemoryPage: Renderizando cronômetro - showDatingTimer:', showDatingTimer, 'datingStartDate:', datingStartDate)}
+              {showDatingTimer && datingStartDate && (
+                <div className="mt-6 p-4 bg-gradient-to-r from-pink-500/20 to-red-500/20 rounded-xl border border-pink-500/30">
+                  <TimeTogether startDate={datingStartDate} title="💕 Tempo de Namoro" />
+                </div>
+              )}
+              
+              {/* Botão para ativar cronômetro (apenas para criadores quando não ativo) */}
+              {isCreator && !showDatingTimer && (
+                <div className="mt-6 p-4 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded-xl border border-yellow-500/30">
+                  <div className="text-center">
+                    <p className="text-yellow-300 font-semibold mb-3">⏰ Cronômetro de Namoro</p>
+                    <p className="text-yellow-200 text-sm mb-4">
+                      Clique no botão abaixo para ativar o cronômetro de namoro.
+                    </p>
+                    <button 
+                      onClick={handleSheSaidYes}
+                      disabled={isLoading}
+                      className="bg-gradient-to-r from-pink-500 to-red-500 hover:from-pink-600 hover:to-red-600 text-white font-bold py-3 px-6 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isLoading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          Ativando...
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xl">💍</span>
+                          Ativar Cronômetro de Namoro
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+              
             </div>
           </div>
         </div>
